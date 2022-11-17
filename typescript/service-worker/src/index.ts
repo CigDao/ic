@@ -6,6 +6,20 @@ function updateStatus(message: string) {
 }
 
 window.addEventListener('load', async () => {
+
+  const loadingTextArray = ["Loading CigDao.", "Loading CigDao..", "Loading CigDao...", "ICP service worker keeps you safe", "Grab a Coffee while you wait", "The one piece is real" ,"Loading CigDao"]
+  let loadingTextIDX = 0;
+  setInterval(() => {
+    const loadingText = document.getElementById("loading-text");
+    loadingTextIDX++;
+    if (loadingTextIDX === loadingTextArray.length) {
+      loadingTextIDX = 0;
+    }
+    loadingText.innerHTML = loadingTextArray[loadingTextIDX];
+
+  }, 3000);
+
+
   // Verify user's web browser has necessary support
   const unsupported = [
     ['serviceWorker', window.navigator.serviceWorker],

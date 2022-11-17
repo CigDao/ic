@@ -22,7 +22,10 @@ const hostnameCanisterIdMap: Record<string, [string, string]> = {
   'personhood.ic0.app': ['g3wsl-eqaaa-aaaan-aaaaa-cai', 'ic0.app'],
   'cigdao.org': ['blka3-liaaa-aaaag-aasaa-cai', 'ic0.app'],
   'cigdao.com': ['blka3-liaaa-aaaag-aasaa-cai', 'ic0.app'],
-  'yourcoin.ooo': ['blka3-liaaa-aaaag-aasaa-cai', 'ic0.app']
+  'yourcoin.ooo': ['blka3-liaaa-aaaag-aasaa-cai', 'ic0.app'],
+  'explorer.cigdao.org' : ["iihkl-jyaaa-aaaal-qbhna-cai",'ic0.app'],
+  'explorer.cigdao.com' : ["iihkl-jyaaa-aaaal-qbhna-cai",'ic0.app'],
+  'explorer.yourcoin.ooo' : ["iihkl-jyaaa-aaaal-qbhna-cai",'ic0.app'],
 };
 
 const shouldFetchRootKey = Boolean(process.env.FORCE_FETCH_ROOT_KEY);
