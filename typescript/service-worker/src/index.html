@@ -6,14 +6,13 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@cigdao_" />
     <meta name="twitter:creator" content="@crypto_is_good"/>
-    <meta name="twitter:title" content="CigDao" />
+    <meta name="twitter:title" content="CigDao Service Worker" />
     <meta name="twitter:description" content="CigDao is an ICP Token Launcher for the people" />
-    <meta name="twitter:image" content="https://cdn.cigdao.org/cryptoisgood.png" />
+    <meta name="twitter:image" content="https://cdn.cigdao.org/cigdaologo.png" />
   
-    <meta property="og:title" content="CigDao" />
-    <meta property="og:type" content="website" />
+    <meta property="og:title" content="CigDao Service Worker" />
     <meta property="og:url" content="http://cigdao.org" />
-    <meta property="og:image" content="https://cdn.cigdao.org/cryptoisgood.png" />
+    <meta property="og:image" content="https://cdn.cigdao.org/cigdaologo.png" />
     <meta property="og:description" content="CigDao is an ICP Token Launcher for the people" />
     <meta name="description" content="CigDao is an ICP Token Launcher for the people">
     <meta name="application-name" content="CigDao">
@@ -43,7 +42,7 @@
         display: flex;
         flex-flow: column nowrap;
         justify-content: space-between;
-        background: white
+        background: #b5af8f
       }
 
       @keyframes rotate {
@@ -68,11 +67,11 @@
         width: 80px;
         height: 80px;
         margin: 90px auto 0;
-        border: solid 6px rgba(56, 24, 185, 1);
+        border: solid 6px rgb(80, 0, 0);
         border-radius: 50%;
-        border-right-color: rgba(56, 24, 185, 0.25);
-        border-bottom-color: rgba(56, 24, 185, 0.25);
-        border-left-color: rgba(56, 24, 185, 0.25);
+        border-right-color: rgba(185, 24, 24, 0.25);
+        border-bottom-color: rgba(185, 24, 24, 0.25);
+        border-left-color: rgba(185, 24, 24, 0.25);
         -webkit-transition: all 0.5s ease-in;
         -webkit-animation-name: rotate;
         -webkit-animation-duration: 1.5s;
@@ -107,13 +106,17 @@
       .transparent {
         opacity: 0.6;
       }
+
+      #loading-text{
+        color: #8e766f;
+      }
     </style>
   </head>
   <body>
     <main>
       <div>
         <div id="logo" style="max-width: 400px; margin: auto;">
-          <svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 668 668"><defs><style>.cls-1{fill:#fff;}.cls-2{fill:#d5bdaf;}</style></defs><title>CIG Logo design</title><circle class="cls-1" cx="334" cy="334" r="334"/><path class="cls-2" d="M3143.29,1900.83q6,.42,9,3.38a16.11,16.11,0,0,1,4.15,7.32,34.93,34.93,0,0,1,1.2,9.29V1930h-19.71v-9.85h-39.42v59.13h39.42v-9.85h19.71c0,2.81,0,6-.07,9.43a34,34,0,0,1-1.48,9.71,17.84,17.84,0,0,1-4.57,7.6c-2.12,2.07-5.28,3.1-9.51,3.1h-38.15q-2.53,0-6.9-.21a28.65,28.65,0,0,1-8.45-1.69,18,18,0,0,1-7.11-4.72q-3-3.22-3-9.43v-51.81q0-4.5.28-8.09c.19-2.4.47-5.09.84-8.1q.85-6.33,3.88-9.36a16.36,16.36,0,0,1,7.18-4.22,30,30,0,0,1,8.87-1.13q4.71.07,8.94.07c2.9,0,5.37,0,7.39.07s4.17.07,6.47.07,5.05,0,8.24.07S3137.94,1900.83,3143.29,1900.83Z" transform="translate(-2844 -1616)"/><path class="cls-2" d="M3187.07,1901v98.55h-19.71V1901Z" transform="translate(-2844 -1616)"/><path class="cls-2" d="M3262.81,1901.82q6.34.84,9.37,3.87a16.51,16.51,0,0,1,4.22,7.18,30.44,30.44,0,0,1,1.13,8.87q-.08,4.71-.07,8.94h-19.71v-9.86h-39.42V1980h39.42V1960.1h-24.64v-19.71h44.35V1970c0,2.82,0,5.88.14,9.17a31.79,31.79,0,0,1-1.06,9.32,16.08,16.08,0,0,1-4.22,7.34q-3,3-9.37,3.24-9.57.42-17.59.28t-17.18-.14c-2.82,0-5.91,0-9.29-.07a40.43,40.43,0,0,1-9.5-1.19,15.93,15.93,0,0,1-7.4-4q-3-2.88-2.95-8.51,0-17.61-.14-34.57t.28-34.56q.14-6.33,3.17-9.5a16.25,16.25,0,0,1,7.39-4.44,33.31,33.31,0,0,1,9.29-1.27h24c3.8,0,6.92,0,9.37.07s4.41.12,5.91.22S3261.31,1901.63,3262.81,1901.82Z" transform="translate(-2844 -1616)"/><polygon class="cls-2" points="334 333.86 334.27 333.99 334 334.14 333.73 333.99 334 333.86"/><path class="cls-2" d="M3127.65,2097.37h0v86h37.12v-78.2c-2.41-.2-4.81-.48-7.19-.79A154.32,154.32,0,0,1,3127.65,2097.37Z" transform="translate(-2844 -1616)"/><path class="cls-2" d="M3127.65,1733v69.64a153.86,153.86,0,0,1,37.12-7.8v-78.18h-37.12Z" transform="translate(-2844 -1616)"/><path class="cls-2" d="M3228.35,1733v-16.34h-37.12v78.18a153.86,153.86,0,0,1,37.12,7.8Z" transform="translate(-2844 -1616)"/><polygon class="cls-2" points="333.73 334.01 334 334.15 334.27 334.01 334 333.88 333.73 334.01"/><path class="cls-2" d="M3228.35,2097.37a155.8,155.8,0,0,1-27.55,6.68q-4.74.69-9.57,1.1v67.2h0v11h37.12V2167h0v-69.66Z" transform="translate(-2844 -1616)"/><path class="cls-2" d="M2959.78,1905.11c-.34,1.66-.66,3.33-1,5-.36,2-.7,4-1,6a4.68,4.68,0,0,0-.07.54c-.17,1.19-.35,2.37-.51,3.55-.11.85-.21,1.7-.31,2.56s-.25,2-.35,3c-.76,6.93-1.21,14-1.3,21.08,0,1,0,2.06,0,3.1v.94c0,1.67.05,3.35.1,5,0,.27,0,.55,0,.82,0,1.16.09,2.31.13,3.46,0,.9.1,1.78.15,2.66a.66.66,0,0,1,0,.14c0,.53.06,1.08.09,1.6,0,.13,0,.26,0,.39.1,1.46.2,2.91.31,4.36a1.81,1.81,0,0,0,0,.23c.16,1.84.35,3.66.54,5.48l.3,2.42c.12,1,.25,2,.37,3,.18,1.29.35,2.57.55,3.84q.39,2.55.84,5.07c.17.91.33,1.84.5,2.75.47,2.42,1,4.81,1.5,7.21.26,1.15.54,2.3.81,3.46l.87,3.43a223.21,223.21,0,0,0,138.82,152.88v-73.77a157,157,0,0,1-62.24-65.84,154.07,154.07,0,0,1-16.24-69.06v-1a153.85,153.85,0,0,1,16.24-69,156.62,156.62,0,0,1,62.24-65.88v-73.76A223.08,223.08,0,0,0,2959.78,1905.11Zm55.92,126.1-15.09,7.53a198.18,198.18,0,0,1,0-177.49l15.09,7.56a181.3,181.3,0,0,0,0,162.4Z" transform="translate(-2844 -1616)"/><path class="cls-2" d="M3400.72,1946.89c-.09-7.11-.54-14.15-1.3-21.08-.1-1-.22-2-.35-3s-.2-1.71-.31-2.56c-.16-1.18-.34-2.36-.51-3.55a4.68,4.68,0,0,0-.07-.54c-.3-2-.64-4-1-6-.3-1.69-.62-3.36-1-5-.26-1.26-.54-2.53-.8-3.77-.52-2.32-1.06-4.63-1.65-6.92-.31-1.15-.61-2.29-.91-3.43a223.26,223.26,0,0,0-138.09-150.14v73.76a156.62,156.62,0,0,1,62.24,65.88,153.85,153.85,0,0,1,16.24,69v1a154.63,154.63,0,0,1-41.35,105.33,155.89,155.89,0,0,1-37.13,29.57v73.77a223.43,223.43,0,0,0,130.72-127.91l1.08-2.83c1.12-3,2.18-6,3.17-9,.29-.88.58-1.78.85-2.67.39-1.21.75-2.43,1.11-3.64.68-2.25,1.3-4.53,1.89-6.82s1.16-4.59,1.68-6.89,1-4.79,1.5-7.21c.17-.91.33-1.84.5-2.75q.45-2.52.84-5.07c.2-1.27.37-2.55.54-3.84.13-1,.26-2,.38-3l.3-2.42c.19-1.82.38-3.65.54-5.48a1.66,1.66,0,0,0,0-.22c.11-1.46.21-2.91.31-4.37,0-.13,0-.26,0-.39l.09-1.58a.81.81,0,0,1,0-.16c0-.59.07-1.19.1-1.78,0-.27,0-.53,0-.8.06-1.19.1-2.36.15-3.54,0-.27,0-.55,0-.82.06-1.67.11-3.35.11-5V1950C3400.75,1949,3400.73,1947.93,3400.72,1946.89Zm-45.33,91.85-15.09-7.53a181.3,181.3,0,0,0,0-162.4l15.09-7.56a198.18,198.18,0,0,1,0,177.49Z" transform="translate(-2844 -1616)"/></svg>
+          <img style="max-width: 400px; margin: auto;" src="https://cdn.cigdao.org/cigdaologo.png"/>
         </div>
         <div id="loading"></div>
         <h1 id="loading-text">Loading CigDao</h1>

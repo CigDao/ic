@@ -14,30 +14,39 @@ import {
 import { idlFactory } from '../http-interface/canister_http_interface';
 import { streamContent } from './streaming';
 
-const hostnameCanisterIdMap: Record<string, [string, string]> = {
-  'identity.ic0.app': ['rdmx6-jaaaa-aaaaa-aaadq-cai', 'ic0.app'],
-  'nns.ic0.app': ['qoctq-giaaa-aaaaa-aaaea-cai', 'ic0.app'],
-  'dscvr.one': ['h5aet-waaaa-aaaab-qaamq-cai', 'ic0.app'],
-  'dscvr.ic0.app': ['h5aet-waaaa-aaaab-qaamq-cai', 'ic0.app'],
-  'personhood.ic0.app': ['g3wsl-eqaaa-aaaan-aaaaa-cai', 'ic0.app'],
-  'cigdao.org': ['blka3-liaaa-aaaag-aasaa-cai', 'ic0.app'],
-  'cigdao.com': ['blka3-liaaa-aaaag-aasaa-cai', 'ic0.app'],
-  'yourcoin.ooo': ['blka3-liaaa-aaaag-aasaa-cai', 'ic0.app'],
-  'explorer.cigdao.org' : ["iihkl-jyaaa-aaaal-qbhna-cai",'ic0.app'],
-  'explorer.cigdao.com' : ["iihkl-jyaaa-aaaal-qbhna-cai",'ic0.app'],
-  'explorer.yourcoin.ooo' : ["iihkl-jyaaa-aaaal-qbhna-cai",'ic0.app'],
-};
+let hostNameCache: Promise<Record<string, [string, string]> > = undefined;
+
+async function fetchHostNameCanisterMap(): Promise<Record<string, [string, string]> > {
+  const myHeaders = new Headers();
+  myHeaders.append("X-API-Key", "Oho73uqS5l3omAuUSo4gN6UfuJGkpFfh6ilsZwrC");
+
+  const requestOptions: RequestInit = {
+    method: 'GET',
+    headers: myHeaders,
+    redirect: 'follow'
+  };
+
+  const response = await fetch("https://jrpiogb87d.execute-api.us-east-1.amazonaws.com/default/getHostNameCanisterMap", requestOptions);
+  const responseJson = await response.json();
+  const objToBuild = {};
+  for (let i = 0; i < responseJson.length; i++) {
+    objToBuild[responseJson[i].hostName] = [responseJson[i].canisterId, responseJson[i].icpUrl];
+  }
+  console.log(objToBuild)
+
+  return objToBuild;
+}
 
 const shouldFetchRootKey = Boolean(process.env.FORCE_FETCH_ROOT_KEY);
 
-function getServiceWorkerDomain(): string {
+function getServiceWorkerDomain(hostnameCanisterIdMap): string {
   const swLocation = new URL(self.location.toString());
 
   return (
-    splitHostnameForCanisterId(swLocation.hostname)?.[1] ?? swLocation.hostname
+    splitHostnameForCanisterId(swLocation.hostname, hostnameCanisterIdMap)?.[1] ?? swLocation.hostname
   );
 }
-const swDomains = getServiceWorkerDomain();
+let swDomains = undefined;
 
 /**
  * Split a hostname up-to the first valid canister ID from the right.
@@ -46,7 +55,8 @@ const swDomains = getServiceWorkerDomain();
  *     canister ID were found.
  */
 function splitHostnameForCanisterId(
-  hostname: string
+  hostname: string,
+  hostnameCanisterIdMap
 ): [Principal, string] | null {
   const maybeFixed = hostnameCanisterIdMap[hostname];
   if (maybeFixed) {
@@ -73,10 +83,11 @@ function splitHostnameForCanisterId(
  * @returns A Canister ID or null if none were found.
  */
 function maybeResolveCanisterIdFromHostName(
-  hostname: string
+  hostname: string,
+  hostnameCanisterIdMap
 ): Principal | null {
   // Try to resolve from the right to the left.
-  const maybeCanisterId = splitHostnameForCanisterId(hostname);
+  const maybeCanisterId = splitHostnameForCanisterId(hostname, hostnameCanisterIdMap);
   if (maybeCanisterId && swDomains === maybeCanisterId[1]) {
     return maybeCanisterId[0];
   }
@@ -109,11 +120,11 @@ function maybeResolveCanisterIdFromSearchParam(
  * @param urlString The URL in string format (normally from the request).
  * @returns A Canister ID or null if none were found.
  */
-function resolveCanisterIdFromUrl(urlString: string): Principal | null {
+function resolveCanisterIdFromUrl(urlString: string, hostnameCanisterIdMap): Principal | null {
   try {
     const url = new URL(urlString);
     return (
-      maybeResolveCanisterIdFromHostName(url.hostname) ||
+      maybeResolveCanisterIdFromHostName(url.hostname, hostnameCanisterIdMap) ||
       maybeResolveCanisterIdFromSearchParam(url.searchParams)
     );
   } catch (_) {
@@ -126,12 +137,12 @@ function resolveCanisterIdFromUrl(urlString: string): Principal | null {
  * @param headers Headers from the HttpRequest.
  * @returns A Canister ID or null if none were found.
  */
-function maybeResolveCanisterIdFromHeaders(headers: Headers): Principal | null {
+function maybeResolveCanisterIdFromHeaders(headers: Headers, hostnameCanisterIdMap): Principal | null {
   const maybeHostHeader = headers.get('host');
   if (maybeHostHeader) {
     // Remove the port.
     const maybeCanisterId = maybeResolveCanisterIdFromHostName(
-      maybeHostHeader.replace(/:\d+$/, '')
+      maybeHostHeader.replace(/:\d+$/, ''), hostnameCanisterIdMap
     );
     if (maybeCanisterId) {
       return maybeCanisterId;
@@ -141,10 +152,10 @@ function maybeResolveCanisterIdFromHeaders(headers: Headers): Principal | null {
   return null;
 }
 
-function maybeResolveCanisterIdFromHttpRequest(request: Request) {
+function maybeResolveCanisterIdFromHttpRequest(request: Request, hostnameCanisterIdMap) {
   return (
-    maybeResolveCanisterIdFromHeaders(request.headers) ||
-    resolveCanisterIdFromUrl(request.url)
+    maybeResolveCanisterIdFromHeaders(request.headers, hostnameCanisterIdMap) ||
+    resolveCanisterIdFromUrl(request.url, hostnameCanisterIdMap)
   );
 }
 
@@ -249,6 +260,18 @@ async function removeLegacySubDomains(
  * @throws If an internal error happens.
  */
 export async function handleRequest(request: Request): Promise<Response> {
+  let hostnameCanisterIdMap;
+  if (hostNameCache) {
+    hostnameCanisterIdMap = hostNameCache;
+  } else {
+    hostnameCanisterIdMap = await fetchHostNameCanisterMap();
+    hostNameCache = {...hostnameCanisterIdMap};
+  }
+
+  if (!swDomains) {
+    swDomains = getServiceWorkerDomain(hostnameCanisterIdMap)
+  }
+
   const url = new URL(request.url);
 
   /**
@@ -261,7 +284,7 @@ export async function handleRequest(request: Request): Promise<Response> {
   /**
    * We try to do an HTTP Request query.
    */
-  const maybeCanisterId = maybeResolveCanisterIdFromHttpRequest(request);
+  const maybeCanisterId = maybeResolveCanisterIdFromHttpRequest(request, hostnameCanisterIdMap);
 
   /**
    * We forward all requests to /api/ to the replica, as is.
@@ -285,7 +308,7 @@ export async function handleRequest(request: Request): Promise<Response> {
 
   if (maybeCanisterId) {
     try {
-      const origin = splitHostnameForCanisterId(url.hostname);
+      const origin = splitHostnameForCanisterId(url.hostname, hostnameCanisterIdMap);
       const [agent, actor] = await createAgentAndActor(
         origin ? url.protocol + '//' + origin[1] : url.origin,
         maybeCanisterId,
