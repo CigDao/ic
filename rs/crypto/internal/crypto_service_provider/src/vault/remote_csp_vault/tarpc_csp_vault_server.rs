@@ -146,13 +146,12 @@ impl<
         execute_on_thread_pool(self.thread_pool_handle, job).await
     }
 
-    async fn gen_key_pair(
+    async fn gen_node_signing_key_pair(
         self,
         _: context::Context,
-        algorithm_id: AlgorithmId,
     ) -> Result<CspPublicKey, CspBasicSignatureKeygenError> {
         let vault = self.local_csp_vault;
-        let job = move || vault.gen_key_pair(algorithm_id);
+        let job = move || vault.gen_node_signing_key_pair();
         execute_on_thread_pool(self.thread_pool_handle, job).await
     }
 
@@ -169,13 +168,12 @@ impl<
         execute_on_thread_pool(self.thread_pool_handle, job).await
     }
 
-    async fn gen_key_pair_with_pop(
+    async fn gen_committee_signing_key_pair(
         self,
         _: context::Context,
-        algorithm_id: AlgorithmId,
     ) -> Result<(CspPublicKey, CspPop), CspMultiSignatureKeygenError> {
         let vault = self.local_csp_vault;
-        let job = move || vault.gen_key_pair_with_pop(algorithm_id);
+        let job = move || vault.gen_committee_signing_key_pair();
         execute_on_thread_pool(self.thread_pool_handle, job).await
     }
 
@@ -207,14 +205,13 @@ impl<
     }
 
     // `NiDkgCspVault`-methods.
-    async fn gen_forward_secure_key_pair(
+    async fn gen_dealing_encryption_key_pair(
         self,
         _: context::Context,
         node_id: NodeId,
-        algorithm_id: AlgorithmId,
     ) -> Result<(CspFsEncryptionPublicKey, CspFsEncryptionPop), CspDkgCreateFsKeyError> {
         let vault = self.local_csp_vault;
-        let job = move || vault.gen_forward_secure_key_pair(node_id, algorithm_id);
+        let job = move || vault.gen_dealing_encryption_key_pair(node_id);
         execute_on_thread_pool(self.thread_pool_handle, job).await
     }
 
@@ -298,6 +295,16 @@ impl<
     }
 
     // PublicKeyStoreCspVault-methods.
+    async fn pks_contains(
+        self,
+        _: context::Context,
+        public_keys: CurrentNodePublicKeys,
+    ) -> Result<bool, CspPublicKeyStoreError> {
+        let vault = self.local_csp_vault;
+        let job = move || vault.pks_contains(public_keys);
+        execute_on_thread_pool(self.thread_pool_handle, job).await
+    }
+
     async fn current_node_public_keys(
         self,
         _: context::Context,
@@ -435,13 +442,12 @@ impl<
         execute_on_thread_pool(self.thread_pool_handle, job).await
     }
 
-    async fn idkg_gen_mega_key_pair(
+    async fn idkg_gen_dealing_encryption_key_pair(
         self,
         _: context::Context,
-        algorithm_id: AlgorithmId,
     ) -> Result<MEGaPublicKey, CspCreateMEGaKeyError> {
         let vault = self.local_csp_vault;
-        let job = move || vault.idkg_gen_mega_key_pair(algorithm_id);
+        let job = move || vault.idkg_gen_dealing_encryption_key_pair();
         execute_on_thread_pool(self.thread_pool_handle, job).await
     }
 

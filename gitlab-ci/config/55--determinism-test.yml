@@ -4,7 +4,7 @@ build-determinism-binaries:
     - .rules-parent-pipeline
   stage: build-determinism-test
   needs:
-    - job: cargo-build-release-linux-native
+    - job: wait-for-bazel-test-all
       artifacts: false
     - job: docker-build-ic
       artifacts: false
@@ -95,6 +95,8 @@ build-determinism-setup-os:
   artifacts:
     paths:
       - artifacts
+  # TODO: NODE-724
+  allow_failure: true
   variables:
     PATH0: "setup-os/disk-img"
     PATH1: "setup-os/disk-img-determinism"

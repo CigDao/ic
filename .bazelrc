@@ -37,7 +37,7 @@ build --cxxopt='-std=c++17'
 
 build --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
 build --output_groups=+clippy_checks
-build --@rules_rust//:clippy.toml=//:clippy.toml --@rules_rust//:clippy_flags=-D,warnings,-D,clippy::all,-A,clippy::redundant_closure,-C,debug-assertions=off
+build --@rules_rust//:clippy.toml=//:clippy.toml --@rules_rust//:clippy_flags=-D,warnings,-D,clippy::all,-D,clippy::mem_forget,-A,clippy::redundant_closure,-A,clippy::too_many_arguments,-C,debug-assertions=off
 
 build --aspects=@rules_rust//rust:defs.bzl%rustfmt_aspect
 build --output_groups=+rustfmt_checks
@@ -46,6 +46,7 @@ build --@rules_rust//:rustfmt.toml=//:rustfmt.toml
 build --@rules_rust//:source_path_prefix=""
 
 build --flag_alias=ic_version=//bazel:ic_version
+build --flag_alias=ic_version_rc_only=//bazel:ic_version_rc_only
 build --flag_alias=s3_endpoint=//gitlab-ci/src/artifacts:s3_endpoint
 
 # Exclude system tests by default
@@ -54,7 +55,7 @@ build --build_tag_filters="-system_test"
 test --test_tag_filters="-system_test,-post_master"
 test:alltests --test_tag_filters=""
 test:paritytests --test_tag_filters="-system_test"
-test:ci --test_tag_filters="-post_master,-system_test" # TODO: re-enable system tests when reproducibilty issues between different runners will be fixed.
+test:ci --test_tag_filters="-post_master"
 
 test --test_output=errors
 test --test_env=RUST_BACKTRACE=full

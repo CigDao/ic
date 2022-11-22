@@ -97,11 +97,10 @@ mock! {
     }
 
     pub trait CspKeyGenerator {
-        fn gen_key_pair(&self, alg_id: AlgorithmId) -> Result<CspPublicKey, CryptoError>;
+        fn gen_node_signing_key_pair(&self) -> Result<CspPublicKey, CryptoError>;
 
-        fn gen_key_pair_with_pop(
+        fn gen_committee_signing_key_pair(
             &self,
-            algorithm_id: AlgorithmId,
         ) -> Result<(CspPublicKey, CspPop), CryptoError>;
 
         fn gen_tls_key_pair(
@@ -152,18 +151,17 @@ mock! {
     }
 
     pub trait NiDkgCspClient {
-    fn create_forward_secure_key_pair(
-        &self,
-        _algorithm_id: AlgorithmId,
-        _node_id: NodeId,
-    ) -> Result<(CspFsEncryptionPublicKey, CspFsEncryptionPop), CspDkgCreateFsKeyError>;
+        fn gen_dealing_encryption_key_pair(
+            &self,
+            _node_id: NodeId,
+        ) -> Result<(CspFsEncryptionPublicKey, CspFsEncryptionPop), CspDkgCreateFsKeyError>;
 
-    /// Erases forward secure secret keys at and before a given epoch
-    fn update_forward_secure_epoch(
-        &self,
-        _algorithm_id: AlgorithmId,
-        _epoch: Epoch,
-    ) -> Result<(), CspDkgUpdateFsEpochError>;
+        /// Erases forward secure secret keys at and before a given epoch
+        fn update_forward_secure_epoch(
+          &self,
+         _algorithm_id: AlgorithmId,
+         _epoch: Epoch,
+        ) -> Result<(), CspDkgUpdateFsEpochError>;
 
         fn create_dealing(
             &self,
@@ -247,6 +245,7 @@ mock! {
     }
 
     pub trait NodePublicKeyData {
+        fn pks_contains(&self, public_keys: CurrentNodePublicKeys) -> Result<bool, CryptoError>;
         fn current_node_public_keys(&self) -> CurrentNodePublicKeys;
         fn dkg_dealing_encryption_key_id(&self) -> KeyId;
     }
@@ -328,7 +327,7 @@ mock! {
             active_keys: &std::collections::BTreeSet<IDkgTranscriptInternal>
         ) -> Result<(), IDkgRetainThresholdKeysError>;
 
-        fn idkg_create_mega_key_pair(&self, algorithm_id: AlgorithmId) -> Result<MEGaPublicKey, CspCreateMEGaKeyError>;
+        fn idkg_gen_dealing_encryption_key_pair(&self) -> Result<MEGaPublicKey, CspCreateMEGaKeyError>;
 
         fn idkg_verify_complaint(
             &self,

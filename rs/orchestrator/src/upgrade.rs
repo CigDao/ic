@@ -123,7 +123,7 @@ impl Upgrade {
         // If the CUP is unsigned, it's a registry CUP and we're in a genesis or subnet
         // recovery scenario. Check if we're in an NNS subnet recovery case and download
         // the new registry if needed.
-        if cup.cup.signature.signature.clone().get().0.is_empty() {
+        if cup.cup.signature.signature.get_ref().0.is_empty() {
             info!(
                 self.logger,
                 "The latest CUP (registry version={}, height={}) is unsigned: a subnet genesis/recovery is in progress",
@@ -302,7 +302,7 @@ impl Upgrade {
         cup: &CatchUpPackage,
         old_cup_height: Option<Height>,
     ) {
-        let is_unsigned_cup = cup.signature.signature.clone().get().0.is_empty();
+        let is_unsigned_cup = cup.signature.signature.get_ref().0.is_empty();
         let new_height = cup.content.height();
         if is_unsigned_cup && old_cup_height.is_some() && Some(new_height) > old_cup_height {
             info!(
@@ -381,18 +381,10 @@ impl ImageUpgrader<ReplicaVersion, Option<SubnetId>> for Upgrade {
         &self,
         version: &ReplicaVersion,
     ) -> UpgradeResult<(Vec<String>, Option<String>)> {
-        let mut record = self
+        let record = self
             .registry
             .get_replica_version_record(version.clone(), self.registry.get_latest_version())
             .map_err(UpgradeError::from)?;
-
-        // OR-253 shall remove this statement along with `release_package_url`.
-        // Until then, we need to remain compatible with older replica version records
-        // that contain only a single URL in `release_package_url`. This would duplicate
-        // the first URL in newer blessed versions, which is temporarily accepted.
-        record
-            .release_package_urls
-            .push(record.release_package_url.clone());
 
         Ok((
             record.release_package_urls,

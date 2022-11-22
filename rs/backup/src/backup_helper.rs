@@ -6,6 +6,9 @@ use ic_registry_client::client::{RegistryClient, RegistryClientImpl};
 use ic_registry_client_helpers::node::NodeRegistry;
 use ic_registry_client_helpers::subnet::SubnetRegistry;
 use ic_types::{ReplicaVersion, SubnetId};
+
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use slog::{error, info, warn, Logger};
 use std::ffi::OsStr;
 use std::net::IpAddr;
@@ -22,7 +25,8 @@ pub struct BackupHelper {
     pub subnet_id: SubnetId,
     pub nns_url: String,
     pub root_dir: PathBuf,
-    pub ssh_credentials: String,
+    pub excluded_dirs: Vec<String>,
+    pub ssh_private_key: String,
     pub registry_client: Arc<RegistryClientImpl>,
     pub notification_client: NotificationClient,
     pub log: Logger,
@@ -69,6 +73,11 @@ impl BackupHelper {
 
     fn state_dir(&self) -> PathBuf {
         self.data_dir().join("ic_state")
+    }
+
+    fn archive_dir(&self, last_height: u64) -> PathBuf {
+        self.root_dir
+            .join(format!("archive/{}/{}", self.subnet_id, last_height))
     }
 
     fn username(&self) -> String {
@@ -176,7 +185,7 @@ impl BackupHelper {
         cmd.arg("-e");
         cmd.arg(format!(
             "ssh -o StrictHostKeyChecking=no -i {}",
-            self.ssh_credentials
+            self.ssh_private_key
         ));
         cmd.arg("--timeout=600");
         cmd.args(arguments);
@@ -189,7 +198,7 @@ impl BackupHelper {
         }
     }
 
-    pub fn sync(&self, nodes: &Vec<&IpAddr>) {
+    pub fn sync_files(&self, nodes: &Vec<&IpAddr>) {
         let start_time = Instant::now();
 
         if !self.spool_dir().exists() {
@@ -212,29 +221,24 @@ impl BackupHelper {
 
     pub fn collect_subnet_nodes(&self) -> Result<Vec<IpAddr>, String> {
         let subnet_id = self.subnet_id;
-        let result = block_on(async {
-            if let Err(err) = self.registry_client.try_polling_latest_version(200) {
-                return Err(format!("couldn't poll the registry: {:?}", err));
-            };
-            let version = self.registry_client.get_latest_version();
-            match self
-                .registry_client
-                .get_node_ids_on_subnet(subnet_id, version)
-            {
-                Ok(Some(node_ids)) => Ok(node_ids
-                    .into_iter()
-                    .filter_map(|node_id| {
-                        self.registry_client
-                            .get_transport_info(node_id, version)
-                            .unwrap_or_default()
-                    })
-                    .collect::<Vec<_>>()),
-                other => Err(format!(
-                    "no node ids found in the registry for subnet_id={}: {:?}",
-                    subnet_id, other
-                )),
-            }
-        })?;
+        let version = self.registry_client.get_latest_version();
+        let result = match self
+            .registry_client
+            .get_node_ids_on_subnet(subnet_id, version)
+        {
+            Ok(Some(node_ids)) => Ok(node_ids
+                .into_iter()
+                .filter_map(|node_id| {
+                    self.registry_client
+                        .get_transport_info(node_id, version)
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>()),
+            other => Err(format!(
+                "no node ids found in the registry for subnet_id={}: {:?}",
+                subnet_id, other
+            )),
+        }?;
         result
             .into_iter()
             .filter_map(|node_record| {
@@ -277,28 +281,49 @@ impl BackupHelper {
             std::fs::create_dir_all(self.state_dir()).expect("Failure creating a directory");
         }
 
+        // replay the current version once, but if there is upgrade do it again
         while let Ok(ReplayResult::UpgradeRequired(upgrade_version)) = self.replay_current_version()
         {
-            info!(self.log, "Upgrade detected to: '{:?}'", upgrade_version);
             self.notification_client.message_slack(format!(
                 "Replica version upgrade detected (current: {} new: {}): upgrading the ic-replay tool to retry... 🤞",
                 self.replica_version, upgrade_version
             ));
+            // collect nodes from which we will fetch the config
+            match self.collect_subnet_nodes() {
+                Ok(nodes) => {
+                    let mut shuf_nodes = nodes;
+                    shuf_nodes.shuffle(&mut thread_rng());
+                    // fetch the ic.json5 file from the first node
+                    // TODO: fetch from another f nodes and compare them
+                    if let Some(node_ip) = shuf_nodes.get(0) {
+                        self.rsync_config(node_ip)
+                    } else {
+                        error!(self.log, "Error getting first node.");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    error!(self.log, "Error fetching subnet node list: {:?}", e);
+                    break;
+                }
+            }
             self.replica_version = upgrade_version;
         }
 
         let finish_height = self.last_checkpoint();
         if finish_height > start_height {
             info!(self.log, "Replay was successful!");
-            self.notification_client.message_slack(format!(
-                "✅ Successfully restored the state at height *{}*",
-                finish_height
-            ));
-            let duration = start_time.elapsed();
-            let minutes = duration.as_secs() / 60;
-            self.notification_client.push_metrics_replay_time(minutes);
-            self.notification_client
-                .push_metrics_restored_height(finish_height);
+            if self.archive_state(finish_height).is_ok() {
+                self.notification_client.message_slack(format!(
+                    "✅ Successfully restored the state at height *{}*",
+                    finish_height
+                ));
+                let duration = start_time.elapsed();
+                let minutes = duration.as_secs() / 60;
+                self.notification_client.push_metrics_replay_time(minutes);
+                self.notification_client
+                    .push_metrics_restored_height(finish_height);
+            }
         } else {
             warn!(self.log, "No progress in the replay!");
             self.notification_client.report_failure_slack(
@@ -370,5 +395,37 @@ impl BackupHelper {
             }
         }
         None
+    }
+    fn archive_state(&self, last_height: u64) -> Result<(), String> {
+        let state_dir = self.data_dir().join(".");
+        let archive_dir = self.archive_dir(last_height);
+        info!(
+            self.log,
+            "Archiving: {} to: {}",
+            state_dir.to_string_lossy(),
+            archive_dir.to_string_lossy()
+        );
+        if !archive_dir.exists() {
+            std::fs::create_dir_all(archive_dir.clone())
+                .unwrap_or_else(|e| panic!("Failure creating archive directory: {}", e));
+        }
+
+        let mut cmd = Command::new("rsync");
+        cmd.arg("-a");
+        cmd.arg("--info=progress2");
+        for dir in &self.excluded_dirs {
+            cmd.arg("--exclude").arg(dir);
+        }
+        cmd.arg(state_dir).arg(archive_dir);
+        info!(self.log, "Will execute: {:?}", cmd);
+        if let Err(e) = exec_cmd(&mut cmd) {
+            error!(self.log, "Error: {}", e);
+            self.notification_client
+                .report_failure_slack("Couldn't backup the recovered state!".to_string());
+            Err(e.to_string())
+        } else {
+            info!(self.log, "State archived!");
+            Ok(())
+        }
     }
 }

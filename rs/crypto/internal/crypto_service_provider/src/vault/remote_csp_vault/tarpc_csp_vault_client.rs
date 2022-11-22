@@ -151,16 +151,13 @@ impl BasicSignatureCspVault for RemoteCspVault {
         })
     }
 
-    fn gen_key_pair(
-        &self,
-        algorithm_id: AlgorithmId,
-    ) -> Result<CspPublicKey, CspBasicSignatureKeygenError> {
+    fn gen_node_signing_key_pair(&self) -> Result<CspPublicKey, CspBasicSignatureKeygenError> {
         self.tokio_block_on(
             self.tarpc_csp_client
-                .gen_key_pair(context_with_timeout(self.rpc_timeout), algorithm_id),
+                .gen_node_signing_key_pair(context_with_timeout(self.rpc_timeout)),
         )
         .unwrap_or_else(|rpc_error: tarpc::client::RpcError| {
-            Err(CspBasicSignatureKeygenError::InternalError {
+            Err(CspBasicSignatureKeygenError::TransientInternalError {
                 internal_error: rpc_error.to_string(),
             })
         })
@@ -187,16 +184,15 @@ impl MultiSignatureCspVault for RemoteCspVault {
         })
     }
 
-    fn gen_key_pair_with_pop(
+    fn gen_committee_signing_key_pair(
         &self,
-        algorithm_id: AlgorithmId,
     ) -> Result<(CspPublicKey, CspPop), CspMultiSignatureKeygenError> {
         self.tokio_block_on(
             self.tarpc_csp_client
-                .gen_key_pair_with_pop(context_with_timeout(self.rpc_timeout), algorithm_id),
+                .gen_committee_signing_key_pair(context_with_timeout(self.rpc_timeout)),
         )
         .unwrap_or_else(|rpc_error: tarpc::client::RpcError| {
-            Err(CspMultiSignatureKeygenError::InternalError {
+            Err(CspMultiSignatureKeygenError::TransientInternalError {
                 internal_error: rpc_error.to_string(),
             })
         })
@@ -258,6 +254,21 @@ impl SecretKeyStoreCspVault for RemoteCspVault {
 }
 
 impl PublicKeyStoreCspVault for RemoteCspVault {
+    fn pks_contains(
+        &self,
+        public_keys: CurrentNodePublicKeys,
+    ) -> Result<bool, CspPublicKeyStoreError> {
+        self.tokio_block_on(
+            self.tarpc_csp_client
+                .pks_contains(context_with_timeout(self.rpc_timeout), public_keys),
+        )
+        .unwrap_or_else(|rpc_error: tarpc::client::RpcError| {
+            Err(CspPublicKeyStoreError::TransientInternalError(
+                rpc_error.to_string(),
+            ))
+        })
+    }
+
     fn current_node_public_keys(&self) -> Result<CurrentNodePublicKeys, CspPublicKeyStoreError> {
         self.tokio_block_on(
             self.tarpc_csp_client
@@ -272,20 +283,18 @@ impl PublicKeyStoreCspVault for RemoteCspVault {
 }
 
 impl NiDkgCspVault for RemoteCspVault {
-    fn gen_forward_secure_key_pair(
+    fn gen_dealing_encryption_key_pair(
         &self,
         node_id: NodeId,
-        algorithm_id: AlgorithmId,
     ) -> Result<(CspFsEncryptionPublicKey, CspFsEncryptionPop), CspDkgCreateFsKeyError> {
-        self.tokio_block_on(self.tarpc_csp_client.gen_forward_secure_key_pair(
-            context_with_timeout(self.rpc_timeout),
-            node_id,
-            algorithm_id,
-        ))
+        self.tokio_block_on(
+            self.tarpc_csp_client
+                .gen_dealing_encryption_key_pair(context_with_timeout(self.rpc_timeout), node_id),
+        )
         .unwrap_or_else(|rpc_error: tarpc::client::RpcError| {
-            Err(CspDkgCreateFsKeyError::InternalError(InternalError {
-                internal_error: rpc_error.to_string(),
-            }))
+            Err(CspDkgCreateFsKeyError::TransientInternalError(
+                rpc_error.to_string(),
+            ))
         })
     }
 
@@ -392,7 +401,7 @@ impl TlsHandshakeCspVault for RemoteCspVault {
             not_after.to_string(),
         ))
         .unwrap_or_else(|rpc_error: tarpc::client::RpcError| {
-            Err(CspTlsKeygenError::InternalError {
+            Err(CspTlsKeygenError::TransientInternalError {
                 internal_error: rpc_error.to_string(),
             })
         })
@@ -532,13 +541,10 @@ impl IDkgProtocolCspVault for RemoteCspVault {
         })
     }
 
-    fn idkg_gen_mega_key_pair(
-        &self,
-        algorithm_id: AlgorithmId,
-    ) -> Result<MEGaPublicKey, CspCreateMEGaKeyError> {
+    fn idkg_gen_dealing_encryption_key_pair(&self) -> Result<MEGaPublicKey, CspCreateMEGaKeyError> {
         self.tokio_block_on(
             self.tarpc_csp_client
-                .idkg_gen_mega_key_pair(context_with_timeout(self.rpc_timeout), algorithm_id),
+                .idkg_gen_dealing_encryption_key_pair(context_with_timeout(self.rpc_timeout)),
         )
         .unwrap_or_else(|rpc_error: tarpc::client::RpcError| {
             Err(CspCreateMEGaKeyError::TransientInternalError {

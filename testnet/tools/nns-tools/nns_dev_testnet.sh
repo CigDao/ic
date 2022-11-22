@@ -7,10 +7,35 @@ source "$SCRIPT_DIR/functions.sh"
 TESTNET_TOOLS="$(repo_root)/testnet/tools"
 DEPLOYMENT_STEPS=${DEPLOYMENT_STEPS:-''}
 
-TESTNET=${1?Testnet must be specified}
-VERSION=${2?GIT_VERSION for replica/canister builds must be specified}
+help() {
+    print_green "
+Usage: $0 <TESTNET_NAME> <REPLICA_VERSION>
+  TESTNET_NAME: The name of the testnet (a folder name in '<repo_root>/testnet/env').
+    Note: Testnet must have a file called 'hosts_unassigned.ini' for this script to succeed.
+  REPLICA_VERSION: The version of the replica to install on the testnet. Usually git id, or a build id for MR pipelines
+
+  This script will recover a testnet to use mainnet backup in a state ready to launch SNSs and deploy canisters.
+  It creates two subnets, one system subnet, and one application subnet.
+"
+}
+
+if [ $# -lt 2 ]; then
+    help
+    echo
+    print_red "Not enough arguments"
+    exit 1
+fi
+
+TESTNET=$1
+VERSION=$2
 
 SSH_ARGS="-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+
+if ! which dfx >/dev/null; then
+    echo "Please install DFX and add it to your local PATH variable."
+    echo "See https://internetcomputer.org/docs/current/developer-docs/build/install-upgrade-remove/"
+    exit 1
+fi
 
 PEM=$SCRIPT_DIR/nns_test_user_dfx_identity
 dfx identity import --force --disable-encryption nns_test_user_dfx_identity $PEM
@@ -111,9 +136,9 @@ step --optional 6 "Upload WASMs to SNS-WASM" || time (
 # Put all useful variables into a single place
 VARS_FILE="$DIR/output_vars_nns_dev_testnet.sh"
 echo "source $DIR/output_vars_nns_state_deployment.sh" >"$VARS_FILE"
-echo "SUBNET_URL=$SUBNET_URL" >>"$VARS_FILE"
-echo "WALLET_CANISTER=$WALLET_CANISTER" >>"$VARS_FILE"
-echo "IC_ADMIN=$IC_ADMIN" >>$VARS_FILE
-echo "SNS_CLI=$SNS_CLI" >>$VARS_FILE
+echo "export SUBNET_URL=$SUBNET_URL" >>"$VARS_FILE"
+echo "export WALLET_CANISTER=$WALLET_CANISTER" >>"$VARS_FILE"
+echo "export IC_ADMIN=$IC_ADMIN" >>$VARS_FILE
+echo "export SNS_CLI=$SNS_CLI" >>$VARS_FILE
 
 echo "Variables from script stored at $VARS_FILE..."

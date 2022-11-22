@@ -75,6 +75,9 @@ pub mod native_action_ids {
 
     /// ManageSnsMetadata Action.
     pub const MANAGE_SNS_METADATA: u64 = 8;
+
+    /// TransferSnsTreasuryFunds
+    pub const TRANSFER_SNS_TREASURY_FUNDS: u64 = 9;
 }
 
 impl governance::Mode {
@@ -189,6 +192,15 @@ impl governance::Mode {
                          governance is in PreInitializationSwap mode: {:#?}",
                     action,
                 ),
+            )),
+
+            Action::TransferSnsTreasuryFunds(_) => Err(GovernanceError::new_with_message(
+                ErrorType::PreconditionFailed,
+                format!(
+                    "TransferSnsTreasuryFunds proposals are not allowed while \
+                        governance is in PreInitializationSwap mode: {:#?}",
+                    action
+                )
             )),
 
             _ => Ok(()),
@@ -1112,6 +1124,15 @@ impl SnsMetadata {
         }
         Ok(())
     }
+
+    pub fn with_default_values_for_testing() -> Self {
+        SnsMetadata {
+            logo: Some("data:image/png;base64,".to_string()),
+            url: Some("https://dfinity.org".to_string()),
+            name: Some("SNS-Name".to_string()),
+            description: Some("SNS-Description".to_string()),
+        }
+    }
 }
 
 impl Action {
@@ -1220,6 +1241,7 @@ impl From<&Action> for u64 {
             }
             Action::ExecuteGenericNervousSystemFunction(proposal) => proposal.function_id,
             Action::ManageSnsMetadata(_) => native_action_ids::MANAGE_SNS_METADATA,
+            Action::TransferSnsTreasuryFunds(_) => native_action_ids::TRANSFER_SNS_TREASURY_FUNDS,
         }
     }
 }
@@ -2002,6 +2024,7 @@ pub(crate) mod tests {
 
             let disallowed_in_pre_initialization_swap = vec! [
                 Action::ManageNervousSystemParameters(Default::default()),
+                Action::TransferSnsTreasuryFunds(Default::default())
             ];
 
             // Conditionally allow: No targetting SNS canisters.

@@ -1,15 +1,25 @@
 use ic_base_types::{NodeId, RegistryVersion};
+use ic_config::transport::TransportConfig;
 use ic_crypto_temp_crypto::{NodeKeysToGenerate, TempCryptoComponent};
+use ic_crypto_tls_interfaces::TlsHandshake;
+use ic_interfaces_transport::Transport;
 use ic_interfaces_transport::{TransportEvent, TransportEventHandler};
+use ic_logger::ReplicaLogger;
+use ic_metrics::MetricsRegistry;
 use ic_registry_client_fake::FakeRegistryClient;
 use ic_registry_keys::make_crypto_tls_cert_key;
 use ic_registry_proto_data_provider::ProtoRegistryDataProvider;
+use ic_transport::transport::create_transport;
 use std::convert::Infallible;
+use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::net::TcpSocket;
+use tokio::sync::mpsc::Sender;
 use tower::{util::BoxCloneService, Service, ServiceExt};
 use tower_test::mock::Handle;
 
+const TRANSPORT_CHANNEL_ID: u32 = 1234;
 pub const REG_V1: RegistryVersion = RegistryVersion::new(1);
 
 // Get a free port on this host to which we can connect transport to.
@@ -43,6 +53,42 @@ impl Default for RegistryAndDataProvider {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub(crate) fn setup_test_peer<F>(
+    log: ReplicaLogger,
+    rt_handle: tokio::runtime::Handle,
+    node_id: NodeId,
+    port: u16,
+    registry_version: RegistryVersion,
+    registry_and_data: &mut RegistryAndDataProvider,
+    mut crypto_factory: F,
+    event_handler: TransportEventHandler,
+    use_h2: bool,
+) -> (Arc<dyn Transport>, SocketAddr)
+where
+    F: FnMut(&mut RegistryAndDataProvider, NodeId) -> Arc<dyn TlsHandshake + Send + Sync>,
+{
+    let crypto = crypto_factory(registry_and_data, node_id);
+    let config = TransportConfig {
+        node_ip: "0.0.0.0".to_string(),
+        legacy_flow_tag: TRANSPORT_CHANNEL_ID,
+        listening_port: port,
+        send_queue_size: 10,
+    };
+    let peer = create_transport(
+        node_id,
+        config,
+        registry_version,
+        MetricsRegistry::new(),
+        crypto,
+        rt_handle,
+        log,
+        use_h2,
+    );
+    let addr = SocketAddr::from_str(&format!("127.0.0.1:{}", port)).unwrap();
+    peer.set_event_handler(event_handler);
+    (peer, addr)
 }
 
 pub fn temp_crypto_component_with_tls_keys_in_registry(
@@ -83,4 +129,25 @@ pub fn create_mock_event_handler() -> (TransportEventHandler, Handle<TransportEv
         }
     });
     (BoxCloneService::new(infallible_service), handle)
+}
+
+pub(crate) fn setup_peer_up_ack_event_handler(
+    rt: tokio::runtime::Handle,
+    connected: Sender<bool>,
+) -> TransportEventHandler {
+    let (event_handler, mut handle) = create_mock_event_handler();
+    rt.spawn(async move {
+        loop {
+            if let Some(req) = handle.next_request().await {
+                let (event, rsp) = req;
+                if let TransportEvent::PeerUp(_) = event {
+                    connected
+                        .try_send(true)
+                        .expect("Channel capacity should not be reached");
+                }
+                rsp.send_response(());
+            }
+        }
+    });
+    event_handler
 }

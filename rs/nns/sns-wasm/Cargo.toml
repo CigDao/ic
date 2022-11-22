@@ -1,6 +1,6 @@
 [package]
 name = "ic-sns-wasm"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 
 [[bin]]
@@ -26,6 +26,7 @@ ic-cdk = "0.6.0"
 ic-crypto-sha = {path = "../../crypto/sha/"}
 ic-ic00-types = {path = "../../types/ic00_types"}
 ic-metrics-encoder = { path = "../../monitoring/metrics_encoder" }
+ic-nervous-system-common = { path = "../../nervous_system/common" }
 ic-nns-constants = { path = "../constants" }
 ic-sns-governance = { path = "../../sns/governance" }
 ic-sns-init = { path = "../../sns/init" }

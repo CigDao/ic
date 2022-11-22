@@ -34,6 +34,7 @@ DOCKER_RUN_ARGS=(
     -e CI_JOB_NAME=${CI_JOB_NAME:-""}
     -e SHELL_WRAPPER="${SHELL_WRAPPER:-/usr/bin/time}"
     -e VERSION=${VERSION:-"$(git rev-parse HEAD)"}
+    -e CI_COMMIT_REF_PROTECTED="${CI_COMMIT_REF_PROTECTED:-true}"
 )
 
 if [ -e /var/run/docker.sock ]; then
@@ -43,7 +44,7 @@ if [ -e /var/run/docker.sock ]; then
 fi
 
 # if i'm not withing docker already, bind mount the source
-if [ ! -e /.dockerenv ] && [[ "$IMAGE" != "ic-build-bd:"* ]]; then
+if [ ! -e /.dockerenv ] && ! [[ "$IMAGE" =~ ic-build.*-bd ]]; then
     mkdir -p "${REPO_ROOT}/rs/target"
     mkdir -p "${HOME}/.cache/bazel"
     mkdir -p "${HOME}/.aws"
@@ -66,6 +67,11 @@ if [ ! -e /.dockerenv ] && [[ "$IMAGE" != "ic-build-bd:"* ]]; then
         --mount type=volume,source="ic-cargo-${USER}",destination=/cargo
         # destination must match RUSTUP_HOME.
         --mount type=volume,source="ic-rustup-${USER}",destination=/opt/rustup
+
+        # To achieve reproducibility we need to build disk images on a filesystem
+        # with a known block size (the tmpfs filesystem uses 4K blocks).
+        # See get_tmpdir_checking_block_size in checked_tmpdir.py for details.
+        --mount type=tmpfs,destination=/var/sysimage
     )
 elif [ -e /.dockerenv ]; then
     DOCKER_RUN_ARGS+=(

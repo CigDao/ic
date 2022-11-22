@@ -53,19 +53,14 @@ impl From<CspBasicSignatureError> for CryptoError {
 impl From<CspBasicSignatureKeygenError> for CryptoError {
     fn from(e: CspBasicSignatureKeygenError) -> CryptoError {
         match e {
-            CspBasicSignatureKeygenError::UnsupportedAlgorithm { algorithm } => {
-                CryptoError::AlgorithmNotSupported {
-                    algorithm,
-                    reason: "Unsupported algorithm".to_string(),
-                }
-            }
             CspBasicSignatureKeygenError::InternalError { internal_error } => {
-                CryptoError::InvalidArgument {
-                    message: format!("Internal error: {}", internal_error),
-                }
+                CryptoError::InternalError { internal_error }
             }
             CspBasicSignatureKeygenError::DuplicateKeyId { key_id } => {
                 panic_due_to_duplicated_key_id(key_id)
+            }
+            CspBasicSignatureKeygenError::TransientInternalError { internal_error } => {
+                CryptoError::TransientInternalError { internal_error }
             }
         }
     }
@@ -106,12 +101,6 @@ impl From<CspMultiSignatureError> for CryptoError {
 impl From<CspMultiSignatureKeygenError> for CryptoError {
     fn from(e: CspMultiSignatureKeygenError) -> CryptoError {
         match e {
-            CspMultiSignatureKeygenError::UnsupportedAlgorithm { algorithm } => {
-                CryptoError::AlgorithmNotSupported {
-                    algorithm,
-                    reason: "Unsupported algorithm".to_string(),
-                }
-            }
             CspMultiSignatureKeygenError::MalformedPublicKey {
                 algorithm,
                 key_bytes,
@@ -128,6 +117,9 @@ impl From<CspMultiSignatureKeygenError> for CryptoError {
             }
             CspMultiSignatureKeygenError::DuplicateKeyId { key_id } => {
                 panic_due_to_duplicated_key_id(key_id)
+            }
+            CspMultiSignatureKeygenError::TransientInternalError { internal_error } => {
+                CryptoError::TransientInternalError { internal_error }
             }
         }
     }

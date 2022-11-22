@@ -58,10 +58,8 @@ pub trait TarpcCspVault {
         key_id: KeyId,
     ) -> Result<CspSignature, CspBasicSignatureError>;
 
-    // Corresponds to `BasicSignatureCspVault.gen_key_pair()`.
-    async fn gen_key_pair(
-        algorithm_id: AlgorithmId,
-    ) -> Result<CspPublicKey, CspBasicSignatureKeygenError>;
+    // Corresponds to `BasicSignatureCspVault.gen_node_signing_key_pair()`.
+    async fn gen_node_signing_key_pair() -> Result<CspPublicKey, CspBasicSignatureKeygenError>;
 
     // Corresponds to `MultiSignatureCspVault.multi_sign()`.
     async fn multi_sign(
@@ -70,9 +68,8 @@ pub trait TarpcCspVault {
         key_id: KeyId,
     ) -> Result<CspSignature, CspMultiSignatureError>;
 
-    // Corresponds to `MultiSignatureCspVault.gen_key_pair_with_pop()`.
-    async fn gen_key_pair_with_pop(
-        algorithm_id: AlgorithmId,
+    // Corresponds to `MultiSignatureCspVault.gen_committee_signing_key_pair()`.
+    async fn gen_committee_signing_key_pair(
     ) -> Result<(CspPublicKey, CspPop), CspMultiSignatureKeygenError>;
 
     // Corresponds to `ThresholdSignatureCspVault.threshold_sign()`.
@@ -89,10 +86,9 @@ pub trait TarpcCspVault {
         signatory_eligibility: Vec<bool>,
     ) -> Result<(CspPublicCoefficients, Vec<Option<KeyId>>), CspThresholdSignatureKeygenError>;
 
-    // Corresponds to `NiDkgCspVault.gen_forward_secure_key_pair()`.
-    async fn gen_forward_secure_key_pair(
+    // Corresponds to `NiDkgCspVault.gen_dealing_encryption_key_pair()`.
+    async fn gen_dealing_encryption_key_pair(
         node_id: NodeId,
-        algorithm_id: AlgorithmId,
     ) -> Result<(CspFsEncryptionPublicKey, CspFsEncryptionPop), ni_dkg_errors::CspDkgCreateFsKeyError>;
 
     // Corresponds to `NiDkgCspVault.update_forward_secure_epoch()`.
@@ -129,6 +125,11 @@ pub trait TarpcCspVault {
 
     // Corresponds to `SecretKeyStoreCspVault.sks_contains()`.
     async fn sks_contains(key_id: KeyId) -> Result<bool, CspSecretKeyStoreContainsError>;
+
+    // Corresponds to `PublicKeyStoreCspVault.pks_contains()`.
+    async fn pks_contains(
+        public_keys: CurrentNodePublicKeys,
+    ) -> Result<bool, CspPublicKeyStoreError>;
 
     // Corresponds to `PublicKeyStoreCspVault.current_node_public_keys()`.
     async fn current_node_public_keys() -> Result<CurrentNodePublicKeys, CspPublicKeyStoreError>;
@@ -188,10 +189,8 @@ pub trait TarpcCspVault {
         active_key_ids: BTreeSet<KeyId>,
     ) -> Result<(), IDkgRetainThresholdKeysError>;
 
-    // Corresponds to `IDkgProtocolCspVault.idkg_gen_mega_key_pair`
-    async fn idkg_gen_mega_key_pair(
-        algorithm_id: AlgorithmId,
-    ) -> Result<MEGaPublicKey, CspCreateMEGaKeyError>;
+    // Corresponds to `IDkgProtocolCspVault.idkg_gen_dealing_encryption_key_pair`
+    async fn idkg_gen_dealing_encryption_key_pair() -> Result<MEGaPublicKey, CspCreateMEGaKeyError>;
 
     // Corresponds to `IDkgProtocolCspVault.idkg_open_dealing`
     async fn idkg_open_dealing(

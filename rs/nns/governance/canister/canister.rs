@@ -26,7 +26,7 @@ use rand_chacha::ChaCha20Rng;
 
 use ic_base_types::{CanisterId, PrincipalId};
 use ic_nervous_system_common::{
-    ledger::LedgerCanister,
+    ledger::IcpLedgerCanister,
     stable_mem_utils::{BufferedStableMemReader, BufferedStableMemWriter},
     MethodAuthzChange,
 };
@@ -293,7 +293,7 @@ fn canister_init_(init_payload: GovernanceProto) {
         GOVERNANCE = Some(Governance::new(
             init_payload,
             Box::new(CanisterEnv::new()),
-            Box::new(LedgerCanister::new(LEDGER_CANISTER_ID)),
+            Box::new(IcpLedgerCanister::new(LEDGER_CANISTER_ID)),
             Box::new(CMCCanister::new()),
         ));
     }
@@ -821,8 +821,13 @@ fn encode_metrics(w: &mut ic_metrics_encoder::MetricsEncoder<Vec<u8>>) -> std::i
 
     w.encode_gauge(
         "governance_stable_memory_size_bytes",
-        (dfn_core::api::stable_memory_size_in_pages() * 65536) as f64,
+        ic_nervous_system_common::stable_memory_size_bytes() as f64,
         "Size of the stable memory allocated by this canister measured in bytes.",
+    )?;
+    w.encode_gauge(
+        "governance_total_memory_size_bytes",
+        ic_nervous_system_common::total_memory_size_bytes() as f64,
+        "Size of the total memory allocated by this canister measured in bytes.",
     )?;
     w.encode_gauge(
         "governance_proposals_total",

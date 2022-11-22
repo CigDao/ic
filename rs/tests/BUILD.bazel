@@ -3,7 +3,10 @@ load(":system_tests.bzl", "symlink_dir", "system_test")
 
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["src/cow_safety.wasm"])
+exports_files([
+    "src/cow_safety.wasm",
+    "src/message.wasm",
+])
 
 DEPENDENCIES = [
     "//rs/artifact_pool",
@@ -66,6 +69,7 @@ DEPENDENCIES = [
     "//rs/rust_canisters/on_wire",
     "//rs/rust_canisters/proxy_canister:lib",
     "//rs/rust_canisters/xnet_test",
+    "//rs/tests/test_canisters/message:lib",
     "//rs/test_utilities",
     "//rs/test_utilities/identity",
     "//rs/tree_deserializer",
@@ -100,6 +104,7 @@ DEPENDENCIES = [
     "@crate_index//:json5",
     "@crate_index//:k256",
     "@crate_index//:lazy_static",
+    "@crate_index//:leb128",
     "@crate_index//:maplit",
     "@crate_index//:nix",
     "@crate_index//:openssh-keys",
@@ -148,6 +153,7 @@ rust_library(
     compile_data = [
         "//ic-os/guestos:rootfs/opt/ic/share/ic.json5.template",
         "src/consensus/cow_safety.wasm",
+        "src/message.wasm",
         "src/counter.wat",
         "src/ledger_tests/transaction_ledger_correctness.wasm",
     ],
@@ -224,6 +230,12 @@ rust_binary(
     deps = DEPENDENCIES + [":tests"],
 )
 
+py_binary(
+    name = "post_processing",
+    srcs = ["bin/bazel_test_postprocessing.py"],
+    main = ":bin/bazel_test_postprocessing.py",
+)
+
 rust_test(
     name = "test_e2e_scenarios",
     srcs = ["tests/test_driver_tests.rs"],
@@ -234,6 +246,10 @@ rust_test(
 system_test(
     name = "basic_health_test",
     proc_macro_deps = MACRO_DEPENDENCIES,
+    tags = [
+        "external",
+        "manual",
+    ],
     target_compatible_with = ["@platforms//os:linux"],  # requires libssh that does not build on Mac OS
     runtime_deps = GUESTOS_RUNTIME_DEPS + UNIVERSAL_VM_RUNTIME_DEPS,
     deps = DEPENDENCIES + [":tests"],

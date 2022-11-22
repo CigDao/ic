@@ -8,29 +8,33 @@ use url::Url;
 pub struct SubnetConfig {
     pub subnet_id: SubnetId,
     #[serde(deserialize_with = "crate::util::replica_from_string")]
-    pub replica_version: ReplicaVersion,
+    pub initial_replica_version: ReplicaVersion,
     pub nodes_syncing: u32,
     pub sync_period_secs: u64,
     pub replay_period_secs: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     pub backup_instance: String,
+    pub nns_url: Option<Url>,
+    pub nns_pem: PathBuf,
     pub root_dir: PathBuf,
-    pub nns_url: String,
-    pub ssh_credentials: PathBuf,
+    pub excluded_dirs: Vec<String>,
+    pub ssh_private_key: PathBuf,
     pub slack_token: String,
     pub subnets: Vec<SubnetConfig>,
 }
 
 impl ConfigValidate for Config {
     fn validate(self) -> Result<Self, String> {
-        Url::parse(&self.nns_url).map_err(|e| format!("Unable to parse NNS Url {:?}", e))?;
-        if !self.ssh_credentials.exists() {
+        if self.nns_url.is_none() {
+            return Err("NNS Url is required!".to_string());
+        }
+        if !self.ssh_private_key.exists() {
             return Err(format!(
                 "Missing ssh credentials file: {:?}",
-                self.ssh_credentials
+                self.ssh_private_key
             ));
         }
         if self.subnets.is_empty() {

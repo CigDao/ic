@@ -35,7 +35,7 @@ use ic_types::NumInstructions;
 use ic_types::{
     ingress::{IngressState, IngressStatus},
     messages::{Payload, RejectContext, Response as CanisterResponse, StopCanisterContext},
-    CanisterId, ComputeAllocation, Cycles, InvalidComputeAllocationError,
+    CanisterId, CanisterTimer, ComputeAllocation, Cycles, InvalidComputeAllocationError,
     InvalidMemoryAllocationError, InvalidQueryAllocationError, MemoryAllocation, NumBytes,
     PrincipalId, QueryAllocation, SubnetId, Time,
 };
@@ -1143,7 +1143,7 @@ impl CanisterManager {
 
         self.cycles_account_manager
             .observe_consumed_cycles(&mut system_state, creation_fee);
-        let scheduler_state = SchedulerState::default();
+        let scheduler_state = SchedulerState::new(state.metadata.batch_time);
         let mut new_canister = CanisterState::new(system_state, None, scheduler_state);
 
         self.do_update_settings(settings, &mut new_canister);
@@ -1465,6 +1465,9 @@ pub fn uninstall_canister(
 
     // Drop its certified data.
     canister.system_state.certified_data = Vec::new();
+
+    // Deactivate global timer.
+    canister.system_state.global_timer = CanisterTimer::Inactive;
 
     let mut rejects = Vec::new();
     let canister_id = canister.canister_id();

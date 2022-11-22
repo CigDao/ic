@@ -8,6 +8,7 @@
 // and
 //    g^x  corresponds to g * x
 
+pub use crate::ni_dkg::fs_ni_dkg::chunking::*;
 use crate::ni_dkg::fs_ni_dkg::dlog_recovery::{
     CheatingDealerDlogSolver, HonestDealerDlogLookupTable,
 };
@@ -16,35 +17,19 @@ use crate::ni_dkg::fs_ni_dkg::encryption_key_pop::{
 };
 use crate::ni_dkg::fs_ni_dkg::random_oracles::{random_oracle, HashedMap};
 
+use crate::ni_dkg::groth20_bls12_381::types::{BTENodeBytes, FsEncryptionSecretKey};
 use ic_crypto_internal_bls12_381_type::{
     G1Affine, G1Projective, G2Affine, G2Prepared, G2Projective, Gt, Scalar,
 };
-pub use ic_crypto_internal_types::curves::bls12_381::{G1Bytes, G2Bytes};
-use ic_crypto_internal_types::sign::threshold_sig::ni_dkg::ni_dkg_groth20_bls12_381::FsEncryptionCiphertextBytes;
+pub use ic_crypto_internal_types::curves::bls12_381::{FrBytes, G1Bytes, G2Bytes};
+use ic_crypto_internal_types::sign::threshold_sig::ni_dkg::ni_dkg_groth20_bls12_381::{
+    FsEncryptionCiphertextBytes, FsEncryptionPop, FsEncryptionPublicKey,
+};
 use ic_crypto_internal_types::sign::threshold_sig::ni_dkg::Epoch;
 use lazy_static::lazy_static;
 use rand::{CryptoRng, RngCore};
 use std::collections::LinkedList;
 use zeroize::{Zeroize, ZeroizeOnDrop};
-
-/// The ciphertext is an element of Fr which is 256-bits
-pub(crate) const MESSAGE_BYTES: usize = 32;
-
-/// The size in bytes of a chunk
-pub const CHUNK_BYTES: usize = 2;
-
-/// The maximum value of a chunk
-pub const CHUNK_SIZE: isize = 1 << (CHUNK_BYTES << 3); // Number of distinct chunks
-
-/// The minimum range of a chunk
-pub const CHUNK_MIN: isize = 0;
-
-/// The maximum range of a chunk
-pub const CHUNK_MAX: isize = CHUNK_MIN + CHUNK_SIZE - 1;
-
-/// NUM_CHUNKS is simply the number of chunks needed to hold a message (element
-/// of Fr)
-pub const NUM_CHUNKS: usize = (MESSAGE_BYTES + CHUNK_BYTES - 1) / CHUNK_BYTES;
 
 /// Constant which controls the upper limit of epochs
 ///
@@ -136,7 +121,7 @@ pub fn epoch_from_tau_vec(tau: &[Bit]) -> Epoch {
 /// A node of a Binary Tree Encryption scheme.
 ///
 /// Notation from section 7.2.
-pub struct BTENode {
+pub(crate) struct BTENode {
     // Bit-vector, indicating a path in a binary tree.
     pub tau: Vec<Bit>,
 
@@ -174,13 +159,62 @@ impl Drop for BTENode {
     }
 }
 
+impl BTENode {
+    pub(crate) fn serialize(&self) -> BTENodeBytes {
+        BTENodeBytes {
+            tau: self.tau.iter().map(|i| *i as u8).collect(),
+            a: self.a.serialize_to::<G1Bytes>(),
+            b: self.b.serialize_to::<G2Bytes>(),
+            d_t: self
+                .d_t
+                .iter()
+                .map(|p| p.serialize_to::<G2Bytes>())
+                .collect(),
+            d_h: self
+                .d_h
+                .iter()
+                .map(|p| p.serialize_to::<G2Bytes>())
+                .collect(),
+            e: self.e.serialize_to::<G2Bytes>(),
+        }
+    }
+
+    /// Deserialize a BTENode
+    ///
+    /// Assumes inputs are trusted points. Panics if deserialization fails.
+    pub(crate) fn deserialize_unchecked(node: &BTENodeBytes) -> Self {
+        Self {
+            tau: node.tau.iter().copied().map(Bit::from).collect(),
+            a: G1Affine::deserialize_unchecked(&node.a).expect("Malformed secret key at BTENode.a"),
+            b: G2Affine::deserialize_unchecked(&node.b).expect("Malformed secret key at BTENode.b"),
+            d_t: node
+                .d_t
+                .iter()
+                .map(|g2| {
+                    G2Affine::deserialize_unchecked(&g2)
+                        .expect("Malformed secret key at BTENode.d_t")
+                })
+                .collect(),
+            d_h: node
+                .d_h
+                .iter()
+                .map(|g2| {
+                    G2Affine::deserialize_unchecked(&g2)
+                        .expect("Malformed secret key at BTENode.d_h")
+                })
+                .collect(),
+            e: G2Affine::deserialize_unchecked(&node.e).expect("Malformed secret key at BTENode.e"),
+        }
+    }
+}
+
 /// A forward-secure secret key is a list of BTE nodes.
 ///
 /// We can derive the keys of any descendant of any node in the list.
 /// We obtain forward security by maintaining the list so that we can
 /// derive current and future private keys, but none of the past keys.
 pub struct SecretKey {
-    pub bte_nodes: LinkedList<BTENode>,
+    bte_nodes: LinkedList<BTENode>,
 }
 
 /// A public key and its associated proof of possession
@@ -198,6 +232,38 @@ impl PublicKeyWithPop {
             associated_data: associated_data.to_vec(),
         };
         verify_pop(&instance, &self.proof_data).is_ok()
+    }
+
+    /// Parse a serialized public key and PoP
+    pub fn deserialize(pk: &FsEncryptionPublicKey, pop: &FsEncryptionPop) -> Option<Self> {
+        let key_value = G1Affine::deserialize(pk.as_bytes());
+        let pop_key = G1Affine::deserialize(&pop.pop_key);
+        let challenge = Scalar::deserialize(&pop.challenge);
+        let response = Scalar::deserialize(&pop.response);
+
+        match (key_value, pop_key, challenge, response) {
+            (Ok(key_value), Ok(pop_key), Ok(challenge), Ok(response)) => Some(Self {
+                key_value,
+                proof_data: EncryptionKeyPop {
+                    pop_key,
+                    challenge,
+                    response,
+                },
+            }),
+            (_, _, _, _) => None,
+        }
+    }
+
+    /// Serialize the public key and PoP
+    pub(crate) fn serialize(&self) -> (FsEncryptionPublicKey, FsEncryptionPop) {
+        let public_key = FsEncryptionPublicKey(self.key_value.serialize_to::<G1Bytes>());
+
+        let pop = FsEncryptionPop {
+            pop_key: G1Bytes(self.proof_data.pop_key.serialize()),
+            challenge: FrBytes(self.proof_data.challenge.serialize()),
+            response: FrBytes(self.proof_data.response.serialize()),
+        };
+        (public_key, pop)
     }
 }
 
@@ -226,18 +292,12 @@ pub fn kgen<R: RngCore + CryptoRng>(
     let g1 = G1Affine::generator();
     let g2 = G2Affine::generator();
 
-    // x <- getRandomZp
-    // rho <- getRandomZp
-    // let y = g1^x
-    // let pk = (y, pi_dlog)
-    // let dk = (g1^rho, g2^x * f0^rho, f1^rho, ..., f_lambda^rho, h^rho)
-    // return (pk, dk)
-    let spec_x = Scalar::random(rng);
+    let x = Scalar::random(rng);
     let rho = Scalar::random(rng);
     let a = G1Affine::from(g1 * &rho);
     let b = G2Projective::mul2(
         &G2Projective::from(g2),
-        &spec_x,
+        &x,
         &G2Projective::from(&sys.f0),
         &rho,
     )
@@ -264,7 +324,7 @@ pub fn kgen<R: RngCore + CryptoRng>(
     };
     let sk = SecretKey::new(bte_root);
 
-    let y = G1Affine::from(g1 * &spec_x);
+    let y = G1Affine::from(g1 * &x);
 
     let pop_instance = EncryptionKeyInstance {
         g1_gen: G1Affine::generator().clone(),
@@ -272,8 +332,7 @@ pub fn kgen<R: RngCore + CryptoRng>(
         associated_data: associated_data.to_vec(),
     };
 
-    let pop =
-        prove_pop(&pop_instance, &spec_x, rng).expect("Implementation bug: Pop generation failed");
+    let pop = prove_pop(&pop_instance, &x, rng).expect("Implementation bug: Pop generation failed");
 
     (
         PublicKeyWithPop {
@@ -334,8 +393,22 @@ impl SecretKey {
     }
 
     /// Returns this key's  BTE-node that corresponds to the current epoch.
-    pub fn current(&self) -> Option<&BTENode> {
+    pub(crate) fn current(&self) -> Option<&BTENode> {
         self.bte_nodes.back()
+    }
+
+    /// Gets the current epoch for a secret key.
+    ///
+    /// # Panics
+    /// This will panic if the secret key has expired; in this case it has no
+    /// current epoch.
+    pub(crate) fn epoch(&self) -> Epoch {
+        epoch_from_tau_vec(&self.current().expect("No more secret keys left").tau)
+    }
+
+    /// Return if this key has been exhausted and can no longer be used
+    pub fn is_exhausted(&self) -> bool {
+        self.current().is_none()
     }
 
     /// Updates this key to the next epoch.  After an update,
@@ -479,6 +552,36 @@ impl SecretKey {
         });
         node.zeroize();
     }
+
+    /// Serialises a forward secure secret key into the standard form.
+    pub fn serialize(&self) -> FsEncryptionSecretKey {
+        FsEncryptionSecretKey {
+            bte_nodes: self.bte_nodes.iter().map(|node| node.serialize()).collect(),
+        }
+    }
+
+    /// Parses a forward secure secret key
+    ///
+    /// # Security Note
+    ///
+    /// The provided `secret_key` is assumed to be "trusted",
+    /// meaning it was obtained from a known and trusted source.
+    /// This is because certain safety checks are NOT performed
+    /// on the members of the key.
+    ///
+    /// # Panics
+    /// Panics if the key is malformed.  Given that secret keys are created and
+    /// managed within the CSP such a failure is an error in this code or a
+    /// corruption of the secret key store.
+    pub fn deserialize(secret_key: &FsEncryptionSecretKey) -> Self {
+        Self {
+            bte_nodes: secret_key
+                .bte_nodes
+                .iter()
+                .map(BTENode::deserialize_unchecked)
+                .collect(),
+        }
+    }
 }
 
 /// Forward secure ciphertexts
@@ -572,65 +675,43 @@ impl FsEncryptionCiphertext {
 /// Randomness needed for NIZK proofs.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct EncryptionWitness {
-    pub spec_r: Vec<Scalar>,
+    pub r: Vec<Scalar>,
 }
 
 /// Encrypt chunks. Returns ciphertext as well as the witness for later use
 /// in the NIZK proofs.
 pub fn enc_chunks<R: RngCore + CryptoRng>(
-    sij: &[Vec<isize>],
-    pks: &[G1Affine],
+    recipient_and_message: &[(G1Affine, PlaintextChunks)],
     tau: &[Bit],
     associated_data: &[u8],
     sys: &SysParam,
     rng: &mut R,
-) -> Option<(FsEncryptionCiphertext, EncryptionWitness)> {
-    if sij.is_empty() || pks.len() != sij.len() {
-        return None;
-    }
-
-    let receivers = pks.len();
-    let chunks = sij[0].len();
-
-    for i in 0..sij.len() {
-        if sij[i].len() != chunks {
-            return None; // Chunk lengths disagree.
-        }
-        for x in sij[i].iter() {
-            if *x < CHUNK_MIN || *x > CHUNK_MAX {
-                return None; // Chunk out of range.
-            }
-        }
-    }
+) -> (FsEncryptionCiphertext, EncryptionWitness) {
+    let receivers = recipient_and_message.len();
 
     let g1 = G1Affine::generator();
 
-    // do
-    //   spec_r <- replicateM chunks getRandom
-    //   s <- replicateM chunks getRandom
-    //   let rr = (g1^) <$> spec_r
-    //   let ss = (g1^) <$> s
-    let s = Scalar::batch_random(rng, chunks);
+    let s = Scalar::batch_random(rng, NUM_CHUNKS);
     let ss = g1.batch_mul(&s);
 
-    let r = Scalar::batch_random(rng, chunks);
+    let r = Scalar::batch_random(rng, NUM_CHUNKS);
     let rr = g1.batch_mul(&r);
 
-    // [[pk^r * g1^s | (r, s) <- zip rs si] | (pk, si) <- zip pks sij]
     let cc = {
-        let mut cc: Vec<Vec<G1Affine>> = Vec::with_capacity(pks.len());
+        let mut cc: Vec<Vec<G1Affine>> = Vec::with_capacity(receivers);
 
         let g1 = G1Projective::from(g1);
 
-        for i in 0..receivers {
-            let pk = G1Projective::from(&pks[i]);
+        for (pk, ptext) in recipient_and_message {
+            let pk = G1Projective::from(pk);
             let pk_g1_tbl = G1Projective::compute_mul2_tbl(&pk, &g1);
 
-            let mut enc_chunks = Vec::with_capacity(chunks);
+            let chunks = ptext.chunks_as_scalars();
 
-            for j in 0..chunks {
-                let s = Scalar::from_isize(sij[i][j]);
-                enc_chunks.push(pk_g1_tbl.mul2(&r[j], &s));
+            let mut enc_chunks = Vec::with_capacity(NUM_CHUNKS);
+
+            for j in 0..NUM_CHUNKS {
+                enc_chunks.push(pk_g1_tbl.mul2(&r[j], &chunks[j]));
             }
 
             cc.push(G1Projective::batch_normalize(&enc_chunks));
@@ -641,25 +722,22 @@ pub fn enc_chunks<R: RngCore + CryptoRng>(
 
     let extended_tau = extend_tau(&cc, &rr, &ss, tau, associated_data);
     let id = ftau(&extended_tau, sys).expect("extended_tau not the correct size");
-    let mut zz = Vec::with_capacity(chunks);
+    let mut zz = Vec::with_capacity(NUM_CHUNKS);
 
     let id_h_tbl = G2Projective::compute_mul2_tbl(&id, &G2Projective::from(&sys.h));
-    for j in 0..chunks {
+    for j in 0..NUM_CHUNKS {
         zz.push(id_h_tbl.mul2(&r[j], &s[j]));
     }
 
     let zz = G2Projective::batch_normalize(&zz);
 
-    Some((
-        FsEncryptionCiphertext { cc, rr, ss, zz },
-        EncryptionWitness { spec_r: r },
-    ))
+    let witness = EncryptionWitness { r };
+    let crsz = FsEncryptionCiphertext { cc, rr, ss, zz };
+
+    (crsz, witness)
 }
 
 fn is_prefix(xs: &[Bit], ys: &[Bit]) -> bool {
-    // isPrefix [] _ = True
-    // isPrefix _ [] = False
-    // isPrefix (x:xt) (y:yt) = x == y && isPrefix xt yt
     if xs.len() > ys.len() {
         return false;
     }
@@ -705,11 +783,11 @@ pub fn dec_chunks(
     crsz: &FsEncryptionCiphertext,
     tau: &[Bit],
     associated_data: &[u8],
-) -> Result<Vec<isize>, DecErr> {
-    let spec_n = crsz.cc.len();
-    let spec_m = crsz.cc[i].len();
+) -> Result<Scalar, DecErr> {
+    let n = crsz.cc.len();
+    let m = crsz.cc[i].len();
 
-    if crsz.rr.len() != spec_m || crsz.ss.len() != spec_m || crsz.zz.len() != spec_m {
+    if crsz.rr.len() != m || crsz.ss.len() != m || crsz.zz.len() != m {
         return Err(DecErr::InvalidCiphertext);
     }
 
@@ -738,12 +816,9 @@ pub fn dec_chunks(
     let bneg = G2Prepared::from(&bneg);
     let eneg = G2Prepared::from(&dk.e.neg());
 
-    // zipWith4 f cj rr ss zz where
-    //   f c r s z =
-    //     ate(g2, c) * ate(bneg, r) * ate(z, dk_a) * ate(eneg, s)
-    let mut powers = Vec::with_capacity(spec_m);
+    let mut powers = Vec::with_capacity(m);
 
-    for i in 0..spec_m {
+    for i in 0..m {
         let x = Gt::multipairing(&[
             (&cj[i], G2Prepared::generator()),
             (&crsz.rr[i], &bneg),
@@ -760,7 +835,7 @@ pub fn dec_chunks(
 
     if dlogs.iter().any(|x| x.is_none()) {
         // Cheating dealer case
-        let cheating_solver = CheatingDealerDlogSolver::new(spec_n, spec_m);
+        let cheating_solver = CheatingDealerDlogSolver::new(n, m);
 
         for i in 0..dlogs.len() {
             if dlogs[i].is_none() {
@@ -770,28 +845,7 @@ pub fn dec_chunks(
         }
     }
 
-    let chunk_size = Scalar::from_isize(CHUNK_SIZE);
-    let mut acc = Scalar::zero();
-    for dlog in dlogs.iter() {
-        let dlog = match dlog {
-            None => panic!("Unsolvable discrete logarithm in NIDKG"),
-            Some(solution) => solution.clone(),
-        };
-        acc *= &chunk_size;
-        acc += dlog;
-    }
-    let fr_bytes = acc.serialize();
-
-    // Break up fr_bytes into a vec of isize, which will be combined again later.
-    // It may be better to simply return FrBytes and change enc_chunks() to take
-    // FrBytes and have it break it into chunks. This would confine the chunking
-    // logic to the DKG, where it belongs.
-    // (I tried this for a while, but it seemed to touch a lot of code.)
-    let redundant = fr_bytes[..]
-        .chunks_exact(CHUNK_BYTES)
-        .map(|x| 256 * (x[0] as isize) + (x[1] as isize))
-        .collect();
-    Ok(redundant)
+    Ok(PlaintextChunks::from_dlogs(&dlogs).recombine_to_scalar())
 }
 
 // TODO(IDX-1866)
@@ -826,11 +880,6 @@ pub fn verify_ciphertext_integrity(
     let g1_neg = G1Affine::generator().neg();
     let precomp_id = G2Prepared::from(&id);
 
-    // check for all j:
-    //     1 =
-    //      e(g1^{-1}, Z_j) *
-    //      e(R_j, f_0 \Prod_{i=0}^{\lambda} f_i^{\tau_i}) *
-    //      e(S_j,h)
     let checks: Result<(), ()> = crsz
         .rr
         .iter()
@@ -902,7 +951,6 @@ fn ftau_partial(tau: &[Bit], sys: &SysParam) -> Option<G2Projective> {
     if tau.len() > LAMBDA_T {
         return None;
     }
-    // id = product $ f0 : [f | (t, f) <- zip tau sys_fs, t == 1]
     let mut id = G2Projective::from(&sys.f0);
     tau.iter().zip(sys.f.iter()).for_each(|(t, f)| {
         if *t == Bit::One {

@@ -11,6 +11,9 @@ use thiserror::Error;
 
 pub mod connection_endpoint;
 
+/// Key rotation frequency of a single node in seconds.
+pub const IDKG_KEY_UPDATE_FREQUENCY_SECS: u64 = 14 * 24 * 60 * 60; // two weeks
+
 /// Errors returned when requesting a value from the registry.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RegistryError {
@@ -123,9 +126,7 @@ pub enum RegistryDataProviderError {
     /// canister.
     Timeout,
     /// Error when using registry transfer
-    Transfer {
-        source: ic_registry_transport::Error,
-    },
+    Transfer { source: String },
 }
 
 impl std::error::Error for RegistryDataProviderError {}

@@ -560,9 +560,9 @@ impl fmt::Debug for CryptoError {
                 message, not_after
             ),
             CryptoError::InternalError { internal_error } =>
-                write!(f, "Internal error {}", internal_error),
+                write!(f, "Internal error: {}", internal_error),
             CryptoError::TransientInternalError { internal_error: transient_internal_error } =>
-                write!(f, "Transient internal error {}", transient_internal_error),
+                write!(f, "Transient internal error: {}", transient_internal_error),
         }
     }
 }
@@ -762,9 +762,7 @@ impl From<CurrentNodePublicKeys> for NodePublicKeys {
             dkg_dealing_encryption_pk: current_node_public_keys.dkg_dealing_encryption_public_key,
             idkg_dealing_encryption_pks: current_node_public_keys
                 .idkg_dealing_encryption_public_key
-                .clone()
                 .map_or(vec![], |public_key| vec![public_key]),
-            idkg_dealing_encryption_pk: current_node_public_keys.idkg_dealing_encryption_public_key,
         }
     }
 }

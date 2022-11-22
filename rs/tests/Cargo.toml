@@ -51,6 +51,7 @@ ic-icrc1-agent = { path = "../rosetta-api/icrc1/agent" }
 ic-icrc1-ledger = { path = "../rosetta-api/icrc1/ledger" }
 ic-ledger-core = { path = "../rosetta-api/ledger_core" }
 ic-ledger-canister-blocks-synchronizer-test-utils = { path = "../rosetta-api/ledger_canister_blocks_synchronizer/test_utils" }
+ic-message = { path = "./test_canisters/message" }
 ic-nervous-system-common = { path = "../nervous_system/common" }
 ic-nervous-system-common-test-keys = { path = "../nervous_system/common/test_keys" }
 ic-nervous-system-root = { path = "../nervous_system/root" }
@@ -91,6 +92,7 @@ hyper = "0.14.18"
 hyper-rustls = { version = "0.23.0", features = [ "webpki-roots" ] }
 lazy_static = "1.4.0"
 icp-ledger = { path = "../rosetta-api/icp_ledger" }
+leb128 = "0.2.5"
 lifeline = { path = "../nns/handlers/lifeline" }
 itertools = "0.10.0"
 maplit = "1.0.2"

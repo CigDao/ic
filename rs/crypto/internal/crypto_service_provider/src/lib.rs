@@ -30,17 +30,16 @@ use crate::api::{
 };
 use crate::public_key_store::proto_pubkey_store::ProtoPublicKeyStore;
 use crate::public_key_store::temp_pubkey_store::TempPublicKeyStore;
-use crate::public_key_store::{read_node_public_keys, PublicKeyStore};
+use crate::public_key_store::PublicKeyStore;
 use crate::secret_key_store::volatile_store::VolatileSecretKeyStore;
 use crate::secret_key_store::SecretKeyStore;
 use crate::types::CspPublicKey;
-use crate::vault::api::CspVault;
+use crate::vault::api::{CspPublicKeyStoreError, CspVault};
 use ic_config::crypto::{CryptoConfig, CspVaultType};
 use ic_crypto_internal_logmon::metrics::CryptoMetrics;
 use ic_crypto_internal_types::encrypt::forward_secure::CspFsEncryptionPublicKey;
 use ic_logger::{info, new_logger, replica_logger::no_op_logger, ReplicaLogger};
-use ic_protobuf::crypto::v1::NodePublicKeys;
-use ic_types::crypto::CurrentNodePublicKeys;
+use ic_types::crypto::{CryptoError, CurrentNodePublicKeys};
 use key_id::KeyId;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use rand::{CryptoRng, Rng};
@@ -171,7 +170,6 @@ impl Csp {
         logger: Option<ReplicaLogger>,
         metrics: Arc<CryptoMetrics>,
     ) -> Self {
-        Self::migrate_idkg_dealing_encryption_pk_before_instantiating_vault(&config.crypto_root);
         match &config.csp_vault_type {
             CspVaultType::InReplica => Self::new_with_in_replica_vault(config, logger, metrics),
             CspVaultType::UnixSocket(socket_path) => Self::new_with_unix_socket_vault(
@@ -237,20 +235,6 @@ impl Csp {
             logger,
         }
     }
-
-    fn migrate_idkg_dealing_encryption_pk_before_instantiating_vault(pk_path: &Path) {
-        let mut node_public_keys: NodePublicKeys =
-            read_node_public_keys(pk_path).unwrap_or_default();
-        if node_public_keys.idkg_dealing_encryption_pks.is_empty() {
-            if let Some(legacy_idkg_dealing_enc_pk) = &node_public_keys.idkg_dealing_encryption_pk {
-                node_public_keys
-                    .idkg_dealing_encryption_pks
-                    .push(legacy_idkg_dealing_enc_pk.clone());
-                public_key_store::store_node_public_keys(pk_path, &node_public_keys)
-                    .unwrap_or_else(|err| panic!("Failed to store public key material: {err:?}"));
-            }
-        }
-    }
 }
 
 impl Csp {
@@ -274,6 +258,14 @@ impl Csp {
 }
 
 impl NodePublicKeyData for Csp {
+    fn pks_contains(&self, public_keys: CurrentNodePublicKeys) -> Result<bool, CryptoError> {
+        self.csp_vault.pks_contains(public_keys).map_err(
+            |CspPublicKeyStoreError::TransientInternalError(internal_error)| {
+                CryptoError::TransientInternalError { internal_error }
+            },
+        )
+    }
+
     fn current_node_public_keys(&self) -> CurrentNodePublicKeys {
         self.csp_vault
             .current_node_public_keys()

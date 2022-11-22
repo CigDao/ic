@@ -30,6 +30,10 @@ use std::fs::OpenOptions;
 use std::io::{Error, Write};
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 /// `ReadOnly` is the access policy used for reading checkpoints. We
 /// don't want to ever modify persisted states.
@@ -124,7 +128,7 @@ pub struct CanisterStateBits {
     pub heap_delta_debit: NumBytes,
     pub install_code_debit: NumInstructions,
     pub task_queue: Vec<ExecutionTask>,
-    pub time_of_last_allocation_charge_nanos: Option<u64>,
+    pub time_of_last_allocation_charge_nanos: u64,
     pub global_timer_nanos: Option<u64>,
 }
 
@@ -226,17 +230,12 @@ impl Default for BitcoinStateBits {
 ///
 /// ## Promoting a TIP to a checkpoint
 ///
-///   1. Dump the state to files and directories under "<state_root>/tip", sync
-///      all the files.  This sync is probably not required, but it makes
-///      it easier to reason about reflinking (see the next step).
+///   1. Dump the state to files and directories under "<state_root>/tip", mark
+///      readonly and sync all files
 ///
-///   2. Reflink/copy all the files from "<state_root>/tip" to
-///      "<state_root>/fs_tmp/scratchpad_<height>", sync both files and
-///      directories under the scratchpad directory, including the scratchpad
-///      directory itself.
+///   2. Rename tip to checkpoint.
 ///
-///   3. Rename "<state_root>/fs_tmp/scratchpad_<height>" to
-///      "<state_root>/checkpoints/<height>", sync "<state_root>/checkpoints".
+///   3. Reflink the checkpoint back to writeable tip
 ///
 /// ## Promoting a State Sync artifact to a checkpoint
 ///
@@ -255,12 +254,126 @@ impl Default for BitcoinStateBits {
 pub struct StateLayout {
     root: PathBuf,
     log: ReplicaLogger,
+    tip_handler_captured: Arc<AtomicBool>,
+}
+
+pub struct TipHandler {
+    tip_path: PathBuf,
+}
+
+impl TipHandler {
+    pub fn tip_path(&mut self) -> PathBuf {
+        self.tip_path.clone()
+    }
+
+    /// Returns a layout object representing tip state in "tip"
+    /// directory. During round execution this directory may contain
+    /// inconsistent state. During full checkpointing this directory contains
+    /// full state and is converted to a checkpoint.
+    /// This directory is cleaned during restart of a node and reset to
+    /// last full checkpoint.
+    pub fn tip(&mut self, height: Height) -> Result<CheckpointLayout<RwPolicy>, LayoutError> {
+        CheckpointLayout::new(self.tip_path(), height)
+    }
+
+    /// Resets "tip" to a checkpoint identified by height.
+    pub fn reset_tip_to(
+        &mut self,
+        state_layout: &StateLayout,
+        height: Height,
+        thread_pool: Option<&mut scoped_threadpool::Pool>,
+    ) -> Result<(), LayoutError> {
+        let cp_name = state_layout.checkpoint_name(height);
+        let tip = self.tip_path();
+        if tip.exists() {
+            std::fs::remove_dir_all(&tip).map_err(|err| LayoutError::IoError {
+                path: tip.to_path_buf(),
+                message: format!("Cannot remove tip for checkpoint {}", height),
+                io_err: err,
+            })?;
+        }
+
+        let cp_path = state_layout.checkpoints().join(&cp_name);
+        if !cp_path.exists() {
+            return Ok(());
+        }
+
+        match copy_recursively(
+            &state_layout.log,
+            cp_path.as_path(),
+            &tip,
+            FilePermissions::ReadWrite,
+            FSync::No,
+            thread_pool,
+        ) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                if let Err(err) = std::fs::remove_dir_all(&tip) {
+                    error!(
+                        state_layout.log,
+                        "Failed to tip directory. Path: {}, Error: {}.",
+                        tip.display(),
+                        err
+                    )
+                }
+                Err(LayoutError::IoError {
+                    path: tip,
+                    message: format!(
+                        "Failed to convert reset tip to checkpoint to {} (err kind: {:?})",
+                        cp_name,
+                        e.kind()
+                    ),
+                    io_err: e,
+                })
+            }
+        }
+    }
+
+    /// Creates a checkpoint from the "tip" state returning layout object of
+    /// the newly created checkpoint
+    pub fn tip_to_checkpoint(
+        &mut self,
+        state_layout: &StateLayout,
+        tip: CheckpointLayout<RwPolicy>,
+        mut thread_pool: Option<&mut scoped_threadpool::Pool>,
+    ) -> Result<CheckpointLayout<ReadOnly>, LayoutError> {
+        let height = tip.height;
+        #[allow(clippy::needless_option_as_deref)]
+        let cp = state_layout.scratchpad_to_checkpoint(tip, height, thread_pool.as_deref_mut())?;
+        self.reset_tip_to(state_layout, height, thread_pool)?;
+        Ok(cp)
+    }
+
+    /// Deletes canisters from tip if they are not in ids.
+    pub fn filter_tip_canisters(
+        &mut self,
+        height: Height,
+        ids: &BTreeSet<&CanisterId>,
+    ) -> Result<(), LayoutError> {
+        let tip = self.tip(height)?;
+        let canisters_on_disk = tip.canister_ids()?;
+        for id in canisters_on_disk {
+            if !ids.contains(&id) {
+                let canister_path = tip.canister(&id)?.raw_path();
+                std::fs::remove_dir_all(&canister_path).map_err(|err| LayoutError::IoError {
+                    path: canister_path,
+                    message: "Cannot remove canister.".to_string(),
+                    io_err: err,
+                })?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl StateLayout {
     /// Needs to be pub for criterion performance regression tests.
     pub fn try_new(log: ReplicaLogger, root: PathBuf) -> Result<Self, LayoutError> {
-        let state_layout = Self { root, log };
+        let state_layout = Self {
+            root,
+            log,
+            tip_handler_captured: Arc::new(false.into()),
+        };
         state_layout.init()?;
         Ok(state_layout)
     }
@@ -277,6 +390,22 @@ impl StateLayout {
         WriteOnly::check_dir(&self.tmp())
     }
 
+    /// Create tip handler. Could only be called once as TipHandler is an exclusive owner of the
+    /// tip folder.
+    pub fn capture_tip_handler(&self) -> TipHandler {
+        assert_eq!(
+            self.tip_handler_captured.compare_exchange(
+                false,
+                true,
+                Ordering::SeqCst,
+                Ordering::SeqCst
+            ),
+            Ok(false)
+        );
+        TipHandler {
+            tip_path: self.tip_path(),
+        }
+    }
     /// Returns the the raw root path for state
     pub fn raw_path(&self) -> &Path {
         &self.root
@@ -315,16 +444,6 @@ impl StateLayout {
         Ok(())
     }
 
-    /// Returns a layout object representing tip state in "tip"
-    /// directory. During round execution this directory may contain
-    /// inconsistent state. During full checkpointing this directory contains
-    /// full state and is converted to a checkpoint.
-    /// This directory is cleaned during restart of a node and reset to
-    /// last full checkpoint.
-    pub fn tip(&self, height: Height) -> Result<CheckpointLayout<RwPolicy>, LayoutError> {
-        CheckpointLayout::new(self.tip_path(), height)
-    }
-
     /// Returns the path to the serialized states metadata.
     pub fn states_metadata(&self) -> PathBuf {
         self.root.join("states_metadata.pbuf")
@@ -353,21 +472,6 @@ impl StateLayout {
         } else {
             Ok(())
         }
-    }
-
-    /// Creates a checkpoint from the "tip" state returning layout object of
-    /// the newly created checkpoint
-    pub fn tip_to_checkpoint(
-        &self,
-        tip: CheckpointLayout<RwPolicy>,
-        thread_pool: Option<&mut scoped_threadpool::Pool>,
-    ) -> Result<CheckpointLayout<ReadOnly>, LayoutError> {
-        let height = tip.height;
-        let mut thread_pool = thread_pool;
-        #[allow(clippy::needless_option_as_deref)]
-        let cp = self.scratchpad_to_checkpoint(tip, height, thread_pool.as_deref_mut())?;
-        self.reset_tip_to(height, thread_pool)?;
-        Ok(cp)
     }
 
     pub fn scratchpad_to_checkpoint(
@@ -415,58 +519,6 @@ impl StateLayout {
                 io_err,
             })?;
         Ok(())
-    }
-
-    /// Resets "tip" to a checkpoint identified by height.
-    pub fn reset_tip_to(
-        &self,
-        height: Height,
-        thread_pool: Option<&mut scoped_threadpool::Pool>,
-    ) -> Result<(), LayoutError> {
-        let cp_name = self.checkpoint_name(height);
-        let tip = self.tip_path();
-        if tip.exists() {
-            std::fs::remove_dir_all(&tip).map_err(|err| LayoutError::IoError {
-                path: tip.to_path_buf(),
-                message: format!("Cannot remove tip for checkpoint {}", height),
-                io_err: err,
-            })?;
-        }
-
-        let cp_path = self.checkpoints().join(&cp_name);
-        if !cp_path.exists() {
-            return Ok(());
-        }
-
-        match copy_recursively(
-            &self.log,
-            cp_path.as_path(),
-            &tip,
-            FilePermissions::ReadWrite,
-            FSync::No,
-            thread_pool,
-        ) {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                if let Err(err) = std::fs::remove_dir_all(&tip) {
-                    error!(
-                        self.log,
-                        "Failed to tip directory. Path: {}, Error: {}.",
-                        tip.display(),
-                        err
-                    )
-                }
-                Err(LayoutError::IoError {
-                    path: tip,
-                    message: format!(
-                        "Failed to convert reset tip to checkpoint to {} (err kind: {:?})",
-                        cp_name,
-                        e.kind()
-                    ),
-                    io_err: e,
-                })
-            }
-        }
     }
 
     /// Returns the layout of the checkpoint with the given height (if
@@ -733,7 +785,7 @@ impl StateLayout {
         format!("{:016x}", height.get())
     }
 
-    pub fn tip_path(&self) -> PathBuf {
+    fn tip_path(&self) -> PathBuf {
         self.raw_path().join("tip")
     }
 
@@ -799,27 +851,6 @@ impl StateLayout {
                 Err(err)
             }
         }
-    }
-
-    /// Deletes canisters from tip if they are not in ids.
-    pub fn filter_tip_canisters(
-        &self,
-        height: Height,
-        ids: &BTreeSet<&CanisterId>,
-    ) -> Result<(), LayoutError> {
-        let tip = self.tip(height)?;
-        let canisters_on_disk = tip.canister_ids()?;
-        for id in canisters_on_disk {
-            if !ids.contains(&id) {
-                let canister_path = tip.canister(&id)?.raw_path();
-                std::fs::remove_dir_all(&canister_path).map_err(|err| LayoutError::IoError {
-                    path: canister_path,
-                    message: "Cannot remove canister.".to_string(),
-                    io_err: err,
-                })?;
-            }
-        }
-        Ok(())
     }
 
     /// Atomically removes path by first renaming it into tmp_path, and then
@@ -1271,7 +1302,7 @@ impl From<CanisterStateBits> for pb_canister_state_bits::CanisterStateBits {
             stable_memory_size64: item.stable_memory_size.get() as u64,
             heap_delta_debit: item.heap_delta_debit.get(),
             install_code_debit: item.install_code_debit.get(),
-            time_of_last_allocation_charge_nanos: item.time_of_last_allocation_charge_nanos,
+            time_of_last_allocation_charge_nanos: Some(item.time_of_last_allocation_charge_nanos),
             task_queue: item.task_queue.iter().map(|v| v.into()).collect(),
             global_timer_nanos: item.global_timer_nanos,
         }
@@ -1355,8 +1386,7 @@ impl TryFrom<pb_canister_state_bits::CanisterStateBits> for CanisterStateBits {
             time_of_last_allocation_charge_nanos: try_from_option_field(
                 value.time_of_last_allocation_charge_nanos,
                 "CanisterStateBits::time_of_last_allocation_charge_nanos",
-            )
-            .ok(),
+            )?,
             task_queue,
             global_timer_nanos: value.global_timer_nanos,
         })
@@ -1752,9 +1782,12 @@ mod test {
 
     use ic_ic00_types::IC_00;
     use ic_interfaces::messages::{CanisterInputMessage, RequestOrIngress};
-    use ic_test_utilities::types::{
-        ids::canister_test_id,
-        messages::{IngressBuilder, RequestBuilder, ResponseBuilder},
+    use ic_test_utilities::{
+        mock_time,
+        types::{
+            ids::canister_test_id,
+            messages::{IngressBuilder, RequestBuilder, ResponseBuilder},
+        },
     };
     use ic_test_utilities_logger::with_test_replica_logger;
     use ic_test_utilities_tmpdir::tmpdir;
@@ -1782,7 +1815,7 @@ mod test {
             stable_memory_size: NumWasmPages::from(0),
             heap_delta_debit: NumBytes::from(0),
             install_code_debit: NumInstructions::from(0),
-            time_of_last_allocation_charge_nanos: None,
+            time_of_last_allocation_charge_nanos: mock_time().as_nanos_since_unix_epoch(),
             task_queue: vec![],
             global_timer_nanos: None,
         }

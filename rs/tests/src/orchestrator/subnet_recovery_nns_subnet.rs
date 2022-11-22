@@ -17,12 +17,12 @@ Success::
 
 end::catalog[] */
 
-use super::utils::rw_message::install_nns_and_universal_canisters;
+use super::utils::rw_message::install_nns_and_message_canisters;
 use crate::driver::driver_setup::{SSH_AUTHORIZED_PRIV_KEYS_DIR, SSH_AUTHORIZED_PUB_KEYS_DIR};
 use crate::driver::ic::{InternetComputer, Subnet};
 use crate::driver::{test_env::TestEnv, test_env_api::*};
 use crate::orchestrator::utils::rw_message::{
-    can_install_canister_with_retries, can_read_msg, cannot_store_msg, store_message,
+    can_read_msg, cannot_store_msg, cert_state_makes_progress_with_retries, store_message,
 };
 use crate::util::block_on;
 use ic_recovery::nns_recovery_same_nodes::{NNSRecoverySameNodes, NNSRecoverySameNodesArgs};
@@ -45,7 +45,7 @@ pub fn setup(env: TestEnv) {
         .setup_and_start(&env)
         .expect("failed to setup IC under test");
 
-    install_nns_and_universal_canisters(env.topology_snapshot());
+    install_nns_and_message_canisters(env.topology_snapshot());
 }
 
 pub fn test(env: TestEnv) {
@@ -198,7 +198,7 @@ pub fn test(env: TestEnv) {
     upload_node.await_status_is_healthy().unwrap();
 
     info!(logger, "Wait for state sync to complete");
-    can_install_canister_with_retries(
+    cert_state_makes_progress_with_retries(
         &upload_node.get_public_url(),
         upload_node.effective_canister_id(),
         &logger,
