@@ -14,6 +14,7 @@ STRIP_BINARIES = {
     "denylist-updater": "//rs/boundary_node/denylist_updater:denylist-updater",
     "e2e-test-driver": "//rs/scenario_tests:e2e-test-driver",
     "ic-admin": "//rs/registry/admin:ic-admin",
+    "ic-backup": "//rs/backup:ic-backup",
     "ic-balance-exporter": "//rs/boundary_node/ic_balance_exporter:ic-balance-exporter",
     "ic-canister-http-adapter": "//rs/canister_http/adapter:ic-canister-http-adapter",
     "ic-consensus-pool-util": "//rs/artifact_pool:ic-consensus-pool-util",
@@ -35,6 +36,7 @@ STRIP_BINARIES = {
     "sns": "//rs/sns/cli:sns",
     "state-tool": "//rs/state_tool:state-tool",
     "system-tests": "//rs/tests:system-tests",
+    "vector-config-generator": "//rs/vector_config_generator:vector_config_generator",
     "vsock_agent": "//rs/guestos_vsock_agent:vsock_agent",
     "log-scraper": "//rs/log_scraper:log_scraper",
 }
@@ -53,6 +55,10 @@ STRIP_BINARIES = {
     name = name,
     binary = STRIP_BINARIES[name],
     visibility = [
+        "//ic-os/boundary-guestos/dev:__pkg__",
+        "//ic-os/boundary-guestos/dev-sev:__pkg__",
+        "//ic-os/boundary-guestos/prod:__pkg__",
+        "//ic-os/boundary-guestos/prod-sev:__pkg__",
         "//ic-os/guestos/dev:__pkg__",
         "//ic-os/guestos/dev-malicious:__pkg__",
         "//ic-os/guestos/prod:__pkg__",

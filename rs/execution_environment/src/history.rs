@@ -264,6 +264,7 @@ fn dashboard_label_value_from(code: ErrorCode) -> &'static str {
         CanisterInvalidWasm => "Canister Invalid WASM",
         CanisterDidNotReply => "Canister Did Not Reply",
         CanisterOutputQueueFull => "Canister Output Queue Full",
+        CanisterQueueNotEmpty => "Canister Queues Not Empty",
         CanisterOutOfMemory => "Canister Out Of Memory",
         CanisterStopped => "Canister Stopped",
         CanisterStopping => "Canister Stopping",
@@ -292,5 +293,6 @@ fn dashboard_label_value_from(code: ErrorCode) -> &'static str {
         QueryCallGraphTooDeep => "Query call graph contains too many nested calls",
         QueryCallGraphTotalInstructionLimitExceeded => "Total instructions limit exceeded for query call graph",
         CompositeQueryCalledInReplicatedMode => "Composite query cannot be called in replicated mode",
+        CanisterNotHostedBySubnet => "Canister is not hosted by subnet",
     }
 }

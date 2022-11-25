@@ -11,6 +11,7 @@ pub mod guard;
 pub mod lifecycle;
 pub mod management;
 pub mod metrics;
+pub mod queries;
 pub mod signature;
 pub mod state;
 pub mod tx;
@@ -45,7 +46,7 @@ fn undo_sign_request(req: state::RetrieveBtcRequest, utxos: Vec<Utxo>) {
         for utxo in utxos {
             assert!(s.available_utxos.insert(utxo));
         }
-        s.pending_retrieve_btc_requests.push_back(req);
+        s.push_pending_request(req);
     })
 }
 
@@ -95,10 +96,11 @@ async fn estimate_fee_per_vbyte() -> Option<MillisatoshiPerByte> {
     let btc_network = state::read_state(|s| s.btc_network);
     match management::get_current_fees(btc_network).await {
         Ok(fees) => {
+            if btc_network == Network::Regtest {
+                return Some(DEFAULT_FEE);
+            }
             if fees.len() >= 100 {
                 Some(fees[49])
-            } else if btc_network == Network::Regtest {
-                Some(DEFAULT_FEE)
             } else {
                 ic_cdk::print(format!(
                     "[heartbeat]: not enough data points ({}) to compute the fee",
@@ -163,15 +165,19 @@ async fn submit_pending_requests() {
                     req.amount,
                     fee_millisatoshi_per_vbyte,
                 ) {
-                    Ok((unsigned_tx, utxos)) => Some(SignTxRequest {
-                        key_name: s.ecdsa_key_name.clone(),
-                        ecdsa_public_key,
-                        outpoint_account: filter_output_accounts(s, &unsigned_tx),
-                        network: s.btc_network,
-                        unsigned_tx,
-                        original_request: req,
-                        utxos,
-                    }),
+                    Ok((unsigned_tx, utxos)) => {
+                        s.push_in_flight_request(req.block_index, state::InFlightStatus::Signing);
+
+                        Some(SignTxRequest {
+                            key_name: s.ecdsa_key_name.clone(),
+                            ecdsa_public_key,
+                            outpoint_account: filter_output_accounts(s, &unsigned_tx),
+                            network: s.btc_network,
+                            unsigned_tx,
+                            original_request: req,
+                            utxos,
+                        })
+                    }
                     Err(BuildTxError::AmountTooLow) => {
                         ic_cdk::print(format!(
                             "[heartbeat]: dropping a request for BTC amount {} to {} too low to cover the fees",
@@ -179,7 +185,11 @@ async fn submit_pending_requests() {
                             req.address.display(s.btc_network)
                         ));
                         // There is no point in retrying the request because the
-                        // amount is too low anyway.
+                        // amount is too low.
+                        s.push_finalized_request(state::FinalizedBtcRetrieval {
+                            request: req,
+                            state: state::FinalizedStatus::AmountTooLow,
+                        });
                         None
                     }
                     Err(BuildTxError::NotEnoughFunds) => {
@@ -204,6 +214,8 @@ async fn submit_pending_requests() {
             hex::encode(tx::encode_into(&req.unsigned_tx, Vec::new()))
         ));
 
+        let txid = req.unsigned_tx.txid();
+
         match sign_transaction(
             req.key_name,
             &req.ecdsa_public_key,
@@ -213,6 +225,13 @@ async fn submit_pending_requests() {
         .await
         {
             Ok(signed_tx) => {
+                state::mutate_state(|s| {
+                    s.push_in_flight_request(
+                        req.original_request.block_index,
+                        state::InFlightStatus::Sending { txid },
+                    );
+                });
+
                 ic_cdk::print(format!(
                     "[heartbeat]: sending a signed transaction {}",
                     hex::encode(tx::encode_into(&signed_tx, Vec::new()))
@@ -221,8 +240,15 @@ async fn submit_pending_requests() {
                     Ok(()) => {
                         ic_cdk::print(format!(
                             "[heartbeat]: successfully sent transaction {}",
-                            hex::encode(signed_tx.wtxid())
+                            hex::encode(txid)
                         ));
+                        state::mutate_state(|s| {
+                            s.push_submitted_request(state::SubmittedBtcRetrieval {
+                                request: req.original_request,
+                                txid,
+                                used_utxos: req.utxos,
+                            });
+                        });
                     }
                     Err(err) => {
                         ic_cdk::print(format!(
@@ -357,7 +383,7 @@ pub async fn sign_transaction(
     })
 }
 
-fn signed_transaction_length(unsigned_tx: &tx::UnsignedTransaction) -> usize {
+pub fn fake_sign(unsigned_tx: &tx::UnsignedTransaction) -> tx::SignedTransaction {
     tx::SignedTransaction {
         inputs: unsigned_tx
             .inputs
@@ -372,7 +398,6 @@ fn signed_transaction_length(unsigned_tx: &tx::UnsignedTransaction) -> usize {
         outputs: unsigned_tx.outputs.clone(),
         lock_time: unsigned_tx.lock_time,
     }
-    .serialized_len()
 }
 
 #[derive(Debug, PartialEq)]
@@ -484,7 +509,7 @@ pub fn build_unsigned_transaction(
         lock_time: 0,
     };
 
-    let tx_len = signed_transaction_length(&unsigned_tx);
+    let tx_len = fake_sign(&unsigned_tx).vsize();
     let fee = (tx_len as u64 * fee_per_vbyte) / 1000;
 
     if fee > amount {

@@ -15,7 +15,9 @@ use ic_cycles_account_manager::CyclesAccountManager;
 pub use ic_error_types::{ErrorCode, UserError};
 use ic_execution_environment::ExecutionServices;
 use ic_ic00_types::{self as ic00, CanisterIdRecord, InstallCodeArgs, Method, Payload};
-pub use ic_ic00_types::{CanisterInstallMode, CanisterSettingsArgs, UpdateSettingsArgs};
+pub use ic_ic00_types::{
+    CanisterInstallMode, CanisterSettingsArgs, EcdsaKeyId, UpdateSettingsArgs,
+};
 use ic_interfaces::{
     certification::{Verifier, VerifierError},
     execution_environment::{IngressHistoryReader, QueryHandler},
@@ -28,6 +30,7 @@ use ic_logger::ReplicaLogger;
 use ic_messaging::MessageRoutingImpl;
 use ic_metrics::MetricsRegistry;
 use ic_protobuf::registry::{
+    crypto::v1::EcdsaSigningSubnetList,
     node::v1::{ConnectionEndpoint, NodeRecord},
     provisional_whitelist::v1::ProvisionalWhitelist as PbProvisionalWhitelist,
     routing_table::v1::CanisterMigrations as PbCanisterMigrations,
@@ -38,7 +41,7 @@ use ic_protobuf::types::v1::SubnetId as SubnetIdProto;
 use ic_registry_client_fake::FakeRegistryClient;
 use ic_registry_client_helpers::subnet::SubnetListRegistry;
 use ic_registry_keys::{
-    make_canister_migrations_record_key, make_node_record_key,
+    make_canister_migrations_record_key, make_ecdsa_signing_subnet_list_key, make_node_record_key,
     make_provisional_whitelist_record_key, make_routing_table_record_key, ROOT_SUBNET_ID_KEY,
 };
 use ic_registry_proto_data_provider::ProtoRegistryDataProvider;
@@ -46,7 +49,9 @@ use ic_registry_provisional_whitelist::ProvisionalWhitelist;
 use ic_registry_routing_table::{
     routing_table_insert_subnet, CanisterIdRange, CanisterIdRanges, RoutingTable,
 };
+use ic_registry_subnet_features::{EcdsaConfig, SubnetFeatures, DEFAULT_ECDSA_MAX_QUEUE_SIZE};
 use ic_registry_subnet_type::SubnetType;
+use ic_replicated_state::metadata_state::subnet_call_context_manager::SignWithEcdsaContext;
 use ic_replicated_state::page_map::Buffer;
 use ic_replicated_state::{
     canister_state::{NumWasmPages, WASM_PAGE_SIZE_IN_BYTES},
@@ -60,11 +65,15 @@ use ic_test_utilities_registry::{
 use ic_types::consensus::certification::CertificationContent;
 use ic_types::crypto::threshold_sig::ni_dkg::{NiDkgId, NiDkgTag, NiDkgTargetSubnet};
 pub use ic_types::crypto::threshold_sig::ThresholdSigPublicKey;
-use ic_types::crypto::{CombinedThresholdSig, CombinedThresholdSigOf, Signable, Signed};
-use ic_types::messages::Certificate;
+use ic_types::crypto::{
+    canister_threshold_sig::MasterEcdsaPublicKey, AlgorithmId, CombinedThresholdSig,
+    CombinedThresholdSigOf, Signable, Signed,
+};
+use ic_types::messages::{CallbackId, Certificate};
 use ic_types::signature::ThresholdSignature;
 use ic_types::{
     batch::{Batch, BatchPayload, IngressPayload},
+    canister_http::CanisterHttpRequestContext,
     consensus::certification::Certification,
     messages::{
         Blob, HttpCallContent, HttpCanisterUpdate, HttpRequestEnvelope, SignedIngress, UserQuery,
@@ -107,16 +116,19 @@ const GENESIS: Time = Time::from_nanos_since_unix_epoch(1_620_328_630_000_000_00
 /// Constructs the initial version of the registry containing a subnet with the
 /// specified SUBNET_ID, with the nodes with the specified NODE_IDs.
 fn make_nodes_registry(
+    nns_subnet_id: SubnetId,
     subnet_id: SubnetId,
     subnet_type: SubnetType,
     node_ids: &[NodeId],
+    ecdsa_keys: &[EcdsaKeyId],
+    features: SubnetFeatures,
 ) -> (Arc<ProtoRegistryDataProvider>, Arc<FakeRegistryClient>) {
     let registry_version = RegistryVersion::from(1);
     let data_provider = Arc::new(ProtoRegistryDataProvider::new());
 
     let root_subnet_id_proto = SubnetIdProto {
         principal_id: Some(PrincipalIdIdProto {
-            raw: subnet_id.get_ref().to_vec(),
+            raw: nns_subnet_id.get_ref().to_vec(),
         }),
     };
     data_provider
@@ -126,6 +138,26 @@ fn make_nodes_registry(
             Some(root_subnet_id_proto),
         )
         .unwrap();
+
+    // ECDSA subnet_id must be different from nns_subnet_id, otherwise
+    // `sign_with_ecdsa` won't be charged.
+    let subnet_id_proto = SubnetIdProto {
+        principal_id: Some(PrincipalIdIdProto {
+            raw: subnet_id.get_ref().to_vec(),
+        }),
+    };
+    for key_id in ecdsa_keys {
+        let id = make_ecdsa_signing_subnet_list_key(key_id);
+        data_provider
+            .add(
+                &id.clone(),
+                registry_version,
+                Some(EcdsaSigningSubnetList {
+                    subnets: vec![subnet_id_proto.clone()],
+                }),
+            )
+            .unwrap();
+    }
 
     let mut routing_table = RoutingTable::new();
     routing_table_insert_subnet(&mut routing_table, subnet_id).unwrap();
@@ -174,6 +206,14 @@ fn make_nodes_registry(
     // Set subnetwork list(needed for filling network_topology.nns_subnet_id)
     let record = SubnetRecordBuilder::from(node_ids)
         .with_subnet_type(subnet_type)
+        .with_ecdsa_config(EcdsaConfig {
+            quadruples_to_create_in_advance: 1,
+            key_ids: ecdsa_keys.to_vec(),
+            max_queue_size: Some(DEFAULT_ECDSA_MAX_QUEUE_SIZE),
+            signature_request_timeout_ns: None,
+            idkg_key_rotation_period_ms: None,
+        })
+        .with_features(features.into())
         .build();
 
     insert_initial_dkg_transcript(registry_version.get(), subnet_id, &record, &data_provider);
@@ -225,6 +265,7 @@ pub struct StateMachine {
     checkpoints_enabled: std::cell::Cell<bool>,
     nonce: std::cell::Cell<u64>,
     time: std::cell::Cell<Time>,
+    ecdsa_subnet_public_keys: BTreeMap<EcdsaKeyId, MasterEcdsaPublicKey>,
 }
 
 impl Default for StateMachine {
@@ -251,6 +292,8 @@ pub struct StateMachineBuilder {
     subnet_type: SubnetType,
     subnet_size: usize,
     use_cost_scaling_flag: bool,
+    ecdsa_keys: Vec<EcdsaKeyId>,
+    features: SubnetFeatures,
 }
 
 impl StateMachineBuilder {
@@ -264,6 +307,8 @@ impl StateMachineBuilder {
             subnet_type: SubnetType::System,
             use_cost_scaling_flag: false,
             subnet_size: SMALL_APP_SUBNET_MAX_SIZE,
+            ecdsa_keys: Vec::new(),
+            features: SubnetFeatures::default(),
         }
     }
 
@@ -311,6 +356,16 @@ impl StateMachineBuilder {
         }
     }
 
+    pub fn with_ecdsa_key(self, key: EcdsaKeyId) -> Self {
+        let mut ecdsa_keys = self.ecdsa_keys;
+        ecdsa_keys.push(key);
+        Self { ecdsa_keys, ..self }
+    }
+
+    pub fn with_features(self, features: SubnetFeatures) -> Self {
+        Self { features, ..self }
+    }
+
     pub fn build(self) -> StateMachine {
         StateMachine::setup_from_dir(
             self.state_dir,
@@ -321,6 +376,8 @@ impl StateMachineBuilder {
             self.subnet_type,
             self.subnet_size,
             self.use_cost_scaling_flag,
+            self.ecdsa_keys,
+            self.features,
         )
     }
 }
@@ -356,6 +413,8 @@ impl StateMachine {
         subnet_type: SubnetType,
         subnet_size: usize,
         use_cost_scaling_flag: bool,
+        ecdsa_keys: Vec<EcdsaKeyId>,
+        features: SubnetFeatures,
     ) -> Self {
         use slog::Drain;
 
@@ -371,7 +430,6 @@ impl StateMachine {
         let logger = slog::Logger::root(drain, slog::o!());
         let replica_logger: ReplicaLogger = logger.into();
 
-        let subnet_id = SubnetId::from(PrincipalId::new_subnet_test_id(1));
         let mut node_ids = vec![];
         for id in 0..subnet_size {
             let node_id = NodeId::from(PrincipalId::new_node_test_id(id as u64));
@@ -387,8 +445,16 @@ impl StateMachine {
             ),
         };
 
-        let (registry_data_provider, registry_client) =
-            make_nodes_registry(subnet_id, subnet_type, &node_ids);
+        let nns_subnet_id = SubnetId::from(PrincipalId::new_subnet_test_id(1));
+        let subnet_id = SubnetId::from(PrincipalId::new_subnet_test_id(2));
+        let (registry_data_provider, registry_client) = make_nodes_registry(
+            nns_subnet_id,
+            subnet_id,
+            subnet_type,
+            &node_ids,
+            &ecdsa_keys,
+            features,
+        );
 
         let sm_config = ic_config::state_manager::Config::new(state_dir.path().to_path_buf());
 
@@ -465,6 +531,17 @@ impl StateMachine {
             combined_public_key(&public_coefficients).unwrap(),
         ));
 
+        let mut ecdsa_subnet_public_keys = BTreeMap::new();
+        for ecdsa_key in ecdsa_keys {
+            ecdsa_subnet_public_keys.insert(
+                ecdsa_key,
+                MasterEcdsaPublicKey {
+                    algorithm_id: AlgorithmId::EcdsaSecp256k1,
+                    public_key: b"master_ecdsa_public_key".to_vec(),
+                },
+            );
+        }
+
         Self {
             subnet_id,
             secret_key: secret_key_bytes.get(0).unwrap().clone().unwrap(),
@@ -483,6 +560,7 @@ impl StateMachine {
             checkpoints_enabled: std::cell::Cell::new(checkpoints_enabled),
             nonce: std::cell::Cell::new(nonce),
             time: std::cell::Cell::new(time),
+            ecdsa_subnet_public_keys,
         }
     }
 
@@ -592,7 +670,7 @@ impl StateMachine {
                 ..BatchPayload::default()
             },
             randomness: Randomness::from(seed),
-            ecdsa_subnet_public_keys: BTreeMap::new(),
+            ecdsa_subnet_public_keys: self.ecdsa_subnet_public_keys.clone(),
             registry_version: self.registry_client.get_latest_version(),
             time: self.time.get(),
             consensus_responses: vec![],
@@ -888,6 +966,7 @@ impl StateMachine {
                 ic00::ProvisionalCreateCanisterWithCyclesArgs {
                     amount: Some(candid::Nat::from(cycles.get())),
                     settings,
+                    specified_id: None,
                 }
                 .encode(),
             )
@@ -1422,5 +1501,27 @@ impl StateMachine {
         self.state_manager
             .commit_and_certify(state, height.increment(), CertificationScope::Full);
         balance
+    }
+
+    /// Returns sign with ECDSA contexts from internal subnet call context manager.
+    pub fn sign_with_ecdsa_contexts(&self) -> BTreeMap<CallbackId, SignWithEcdsaContext> {
+        let state = self.state_manager.get_latest_state().take();
+        state
+            .metadata
+            .subnet_call_context_manager
+            .sign_with_ecdsa_contexts
+            .clone()
+    }
+
+    /// Returns canister HTTP request contexts from internal subnet call context manager.
+    pub fn canister_http_request_contexts(
+        &self,
+    ) -> BTreeMap<CallbackId, CanisterHttpRequestContext> {
+        let state = self.state_manager.get_latest_state().take();
+        state
+            .metadata
+            .subnet_call_context_manager
+            .canister_http_request_contexts
+            .clone()
     }
 }

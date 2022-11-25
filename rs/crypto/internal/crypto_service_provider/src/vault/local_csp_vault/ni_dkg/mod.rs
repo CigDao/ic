@@ -51,8 +51,9 @@ impl<R: Rng + CryptoRng, S: SecretKeyStore, C: SecretKeyStore, P: PublicKeyStore
 
         // Update state:
         self.store_secret_key(
-            CspSecretKey::FsEncryption(key_set),
             KeyId::from(&public_key),
+            CspSecretKey::FsEncryption(key_set),
+            None,
         )
         .map_err(|e| match e {
             SecretKeyStoreError::DuplicateKeyId(key_id) => {
@@ -174,7 +175,7 @@ impl<R: Rng + CryptoRng, S: SecretKeyStore, C: SecretKeyStore, P: PublicKeyStore
         let start_time = self.metrics.now();
         self.sks_write_lock()
             .retain(
-                |key_id, _| active_key_ids.contains(key_id),
+                move |key_id, _| active_key_ids.contains(key_id),
                 NIDKG_THRESHOLD_SCOPE,
             )
             .unwrap_or_else(|e| panic!("error retaining threshold keys: {}", e));

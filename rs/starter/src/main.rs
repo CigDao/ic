@@ -111,6 +111,7 @@ fn main() -> Result<()> {
             key_ids: vec![(&key_id).into()],
             max_queue_size: 64,
             signature_request_timeout_ns: None,
+            idkg_key_rotation_period_ms: None,
         });
 
         let mut topology_config = TopologyConfig::default();
@@ -707,6 +708,7 @@ impl ValidatedConfig {
             rate_limiting_of_debug_prints: FlagStatus::Disabled,
             rate_limiting_of_heap_delta: FlagStatus::Disabled,
             rate_limiting_of_instructions: FlagStatus::Disabled,
+            composite_queries: FlagStatus::Enabled,
             ..HypervisorConfig::default()
         };
 

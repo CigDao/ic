@@ -27,7 +27,7 @@ use crate::pb::v1::{
     VotingRewardsParameters,
 };
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     convert::TryFrom,
     fmt,
 };
@@ -322,6 +322,20 @@ impl NervousSystemParameters {
     /// may improve the incentives when voting, but too-high values may also lead
     /// to an over-concentration of voting power. The value used by the NNS is 25.
     pub const MAX_AGE_BONUS_PERCENTAGE_CEILING: u64 = 400;
+
+    /// These are the permissions that must be present in
+    /// `neuron_claimer_permissions`.
+    /// Permissions not in this list can be added after the SNS is created via a
+    /// proposal.
+    pub const REQUIRED_NEURON_CLAIMER_PERMISSIONS: &'static [NeuronPermissionType] = &[
+        // Without this permission, it would be impossible to transfer control
+        // of a neuron to a new principal.
+        NeuronPermissionType::ManagePrincipals,
+        // Without this permission, it would be impossible to vote.
+        NeuronPermissionType::Vote,
+        // Without this permission, it would be impossible to submit a proposal.
+        NeuronPermissionType::SubmitProposal,
+    ];
 
     pub fn with_default_values() -> Self {
         Self {
@@ -683,20 +697,32 @@ impl NervousSystemParameters {
                 "NervousSystemParameters.neuron_claimer_permissions must be set".to_string()
             })?;
 
-        if !neuron_claimer_permissions
-            .permissions
-            .contains(&(NeuronPermissionType::ManagePrincipals as i32))
-        {
-            return Err("NervousSystemParameters.neuron_claimer_permissions must contain NeuronPermissionType::ManagePrincipals".to_string());
-        }
+        let neuron_claimer_permissions = neuron_claimer_permissions.clone().try_into().unwrap();
 
+        let required_claimer_permissions = Self::REQUIRED_NEURON_CLAIMER_PERMISSIONS
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+
+        let difference = required_claimer_permissions
+            .difference(&neuron_claimer_permissions)
+            .collect::<Vec<_>>();
+
+        if !difference.is_empty() {
+            return Err(format!(
+                "NervousSystemParameters.neuron_claimer_permissions is missing the required permissions {difference:?}",
+            ));
+        }
         Ok(())
     }
 
     /// Returns the default for the nervous system parameter neuron_claimer_permissions.
     fn default_neuron_claimer_permissions() -> NeuronPermissionList {
         NeuronPermissionList {
-            permissions: vec![NeuronPermissionType::ManagePrincipals as i32],
+            permissions: Self::REQUIRED_NEURON_CLAIMER_PERMISSIONS
+                .iter()
+                .map(|p| *p as i32)
+                .collect(),
         }
     }
 
@@ -1074,6 +1100,7 @@ impl SnsMetadata {
             Self::MIN_URL_LENGTH,
             Self::MAX_URL_LENGTH,
             "SnsMetadata.url",
+            None,
         )
     }
 
@@ -1452,6 +1479,36 @@ impl NeuronParameters {
         }
 
         permissions
+    }
+}
+
+impl From<Vec<NeuronPermissionType>> for NeuronPermissionList {
+    fn from(permissions: Vec<NeuronPermissionType>) -> Self {
+        NeuronPermissionList {
+            permissions: permissions.into_iter().map(|p| p as i32).collect(),
+        }
+    }
+}
+
+impl From<BTreeSet<NeuronPermissionType>> for NeuronPermissionList {
+    fn from(permissions: BTreeSet<NeuronPermissionType>) -> Self {
+        NeuronPermissionList {
+            permissions: permissions.into_iter().map(|p| p as i32).collect(),
+        }
+    }
+}
+
+impl TryFrom<NeuronPermissionList> for BTreeSet<NeuronPermissionType> {
+    type Error = String;
+
+    fn try_from(permissions: NeuronPermissionList) -> Result<Self, Self::Error> {
+        permissions
+            .permissions
+            .into_iter()
+            .map(|p| {
+                NeuronPermissionType::from_i32(p).ok_or_else(|| format!("Invalid permission {}", p))
+            })
+            .collect()
     }
 }
 
@@ -2253,25 +2310,58 @@ pub(crate) mod tests {
     fn test_sns_metadata_validate() {
         let default = SnsMetadata {
             logo: Some("data:image/png;base64,aGVsbG8gZnJvbSBkZmluaXR5IQ==".to_string()),
-            url: Some(format!(
-                "https://{}.org",
-                "x".repeat(1.max(SnsMetadata::MIN_URL_LENGTH.saturating_sub("http://.org".len())))
-            )),
+            url: Some("https://forum.dfinity.org".to_string()),
             name: Some("X".repeat(SnsMetadata::MIN_NAME_LENGTH)),
             description: Some("X".repeat(SnsMetadata::MIN_DESCRIPTION_LENGTH)),
         };
 
-        let invalid_sns_metadata = vec![
+        let valid_sns_metadata = vec![
+            default.clone(),
             SnsMetadata {
-                url: None,
+                url: Some("https://forum.dfinity.org/foo/bar/?".to_string()),
                 ..default.clone()
             },
+            SnsMetadata {
+                url: Some("https://forum.dfinity.org/foo/bar/?".to_string()),
+                ..default.clone()
+            },
+            SnsMetadata {
+                url: Some("https://any-url.com/foo/bar/?".to_string()),
+                ..default.clone()
+            },
+        ];
+
+        let invalid_sns_metadata = vec![
             SnsMetadata {
                 name: None,
                 ..default.clone()
             },
             SnsMetadata {
+                name: Some("X".repeat(SnsMetadata::MAX_NAME_LENGTH + 1)),
+                ..default.clone()
+            },
+            SnsMetadata {
+                name: Some("X".repeat(SnsMetadata::MIN_NAME_LENGTH - 1)),
+                ..default.clone()
+            },
+            SnsMetadata {
                 description: None,
+                ..default.clone()
+            },
+            SnsMetadata {
+                description: Some("X".repeat(SnsMetadata::MAX_DESCRIPTION_LENGTH + 1)),
+                ..default.clone()
+            },
+            SnsMetadata {
+                description: Some("X".repeat(SnsMetadata::MIN_DESCRIPTION_LENGTH - 1)),
+                ..default.clone()
+            },
+            SnsMetadata {
+                logo: Some("X".repeat(SnsMetadata::MAX_LOGO_LENGTH + 1)),
+                ..default.clone()
+            },
+            SnsMetadata {
+                url: None,
                 ..default.clone()
             },
             SnsMetadata {
@@ -2287,19 +2377,23 @@ pub(crate) mod tests {
                 ..default.clone()
             },
             SnsMetadata {
-                logo: Some("X".repeat(SnsMetadata::MAX_LOGO_LENGTH + 1)),
+                url: Some("file://forum.dfinity.org".to_string()),
                 ..default.clone()
             },
             SnsMetadata {
-                name: Some("X".repeat(SnsMetadata::MAX_NAME_LENGTH + 1)),
+                url: Some("https://".to_string()),
                 ..default.clone()
             },
             SnsMetadata {
-                name: Some("X".repeat(SnsMetadata::MIN_NAME_LENGTH - 1)),
+                url: Some("https://forum.dfinity.org/https://forum.dfinity.org".to_string()),
                 ..default.clone()
             },
             SnsMetadata {
-                url: Some("file://internetcomputer.org".to_string()),
+                url: Some("https://example@forum.dfinity.org".to_string()),
+                ..default.clone()
+            },
+            SnsMetadata {
+                url: Some("http://internetcomputer".to_string()),
                 ..default.clone()
             },
             SnsMetadata {
@@ -2308,23 +2402,21 @@ pub(crate) mod tests {
             },
             SnsMetadata {
                 url: Some("internetcomputer".to_string()),
-                ..default.clone()
-            },
-            SnsMetadata {
-                description: Some("X".repeat(SnsMetadata::MAX_DESCRIPTION_LENGTH + 1)),
-                ..default.clone()
-            },
-            SnsMetadata {
-                description: Some("X".repeat(SnsMetadata::MIN_DESCRIPTION_LENGTH - 1)),
-                ..default.clone()
+                ..default
             },
         ];
 
         for sns_metadata in invalid_sns_metadata {
-            sns_metadata.validate().unwrap_err();
+            if sns_metadata.validate().is_ok() {
+                panic!("Invalid metadata passed validation: {:?}", sns_metadata);
+            }
         }
 
-        assert!(default.validate().is_ok());
+        for sns_metadata in valid_sns_metadata {
+            if sns_metadata.validate().is_err() {
+                panic!("Valid metadata failed validation: {:?}", sns_metadata);
+            }
+        }
     }
 
     #[test]
@@ -2418,6 +2510,22 @@ pub(crate) mod tests {
         parameters.voting_rewards_parameters = None;
         // This is where we expect to panic.
         parameters.validate().unwrap();
+    }
+
+    #[test]
+    fn test_nervous_system_parameters_wont_validate_without_the_required_claimer_permissions() {
+        for permission_to_omit in NervousSystemParameters::REQUIRED_NEURON_CLAIMER_PERMISSIONS {
+            let mut parameters = NervousSystemParameters::with_default_values();
+            parameters.neuron_claimer_permissions = Some(
+                NervousSystemParameters::REQUIRED_NEURON_CLAIMER_PERMISSIONS
+                    .iter()
+                    .filter(|p| *p != permission_to_omit)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .into(),
+            );
+            parameters.validate().unwrap_err();
+        }
     }
 
     #[test]

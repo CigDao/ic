@@ -32,7 +32,7 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 
 /// `ReadOnly` is the access policy used for reading checkpoints. We
@@ -130,6 +130,7 @@ pub struct CanisterStateBits {
     pub task_queue: Vec<ExecutionTask>,
     pub time_of_last_allocation_charge_nanos: u64,
     pub global_timer_nanos: Option<u64>,
+    pub canister_version: u64,
 }
 
 /// This struct contains bits of the `BitcoinState` that are not already
@@ -254,6 +255,7 @@ impl Default for BitcoinStateBits {
 pub struct StateLayout {
     root: PathBuf,
     log: ReplicaLogger,
+    checkpoint_remove_guard: Arc<Mutex<()>>,
     tip_handler_captured: Arc<AtomicBool>,
 }
 
@@ -372,6 +374,7 @@ impl StateLayout {
         let state_layout = Self {
             root,
             log,
+            checkpoint_remove_guard: Arc::new(Mutex::new(())),
             tip_handler_captured: Arc::new(false.into()),
         };
         state_layout.init()?;
@@ -604,6 +607,16 @@ impl StateLayout {
     /// Postcondition:
     ///   height ∉ self.checkpoint_heights()
     pub fn remove_checkpoint(&self, height: Height) -> Result<(), LayoutError> {
+        // Don't ever remove the last checkpoint; in debug, crash
+        // Mutex to prevent removing two last checkpoints from two threads.
+        let _lock = &mut self.checkpoint_remove_guard.lock().unwrap();
+        let heights = self.checkpoint_heights()?;
+        // If we have one last state e.g. @4 but we try to remove @3, we should fail with an error
+        // different from LastCheckpoint
+        if heights.len() == 1 && heights[0] == height {
+            debug_assert!(false, "Trying to remove the last checkpoint");
+            return Err(LayoutError::LastCheckpoint(height));
+        }
         let cp_name = self.checkpoint_name(height);
         let cp_path = self.checkpoints().join(&cp_name);
         let tmp_path = self.fs_tmp().join(&cp_name);
@@ -1133,7 +1146,7 @@ where
         let file = open_for_write(&self.path)?;
         let mut writer = std::io::BufWriter::new(file);
         writer
-            .write(&serialized)
+            .write_all(&serialized)
             .map_err(|io_err| LayoutError::IoError {
                 path: self.path.clone(),
                 message: "failed to write serialized protobuf to disk".to_string(),
@@ -1305,6 +1318,7 @@ impl From<CanisterStateBits> for pb_canister_state_bits::CanisterStateBits {
             time_of_last_allocation_charge_nanos: Some(item.time_of_last_allocation_charge_nanos),
             task_queue: item.task_queue.iter().map(|v| v.into()).collect(),
             global_timer_nanos: item.global_timer_nanos,
+            canister_version: item.canister_version,
         }
     }
 }
@@ -1389,6 +1403,7 @@ impl TryFrom<pb_canister_state_bits::CanisterStateBits> for CanisterStateBits {
             )?,
             task_queue,
             global_timer_nanos: value.global_timer_nanos,
+            canister_version: value.canister_version,
         })
     }
 }
@@ -1818,6 +1833,7 @@ mod test {
             time_of_last_allocation_charge_nanos: mock_time().as_nanos_since_unix_epoch(),
             task_queue: vec![],
             global_timer_nanos: None,
+            canister_version: 0,
         }
     }
 

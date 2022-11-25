@@ -57,7 +57,7 @@ pub(crate) const MAX_QUERY_CALL_DEPTH: usize = 6;
 /// Equivalent to MAX_INSTRUCTIONS_PER_MESSAGE_WITHOUT_DTS for now
 pub(crate) const MAX_INSTRUCTIONS_PER_COMPOSITE_QUERY_CALL: u64 = 5_000_000_000;
 /// This would allow 100 calls with the current MAX_INSTRUCTIONS_PER_COMPOSITE_QUERY_CALL
-pub(crate) const INSTRUCTION_OVERHEAD_PER_QUERY_CALL: u64 = 50_000_000;
+pub const INSTRUCTION_OVERHEAD_PER_QUERY_CALL: u64 = 50_000_000;
 
 // The ID of the Bitcoin testnet canister.
 const BITCOIN_TESTNET_CANISTER_ID: &str = "g4xu7-jiaaa-aaaan-aaaaq-cai";
@@ -152,6 +152,9 @@ pub struct Config {
 
     /// Bitcoin configuration.
     pub bitcoin: BitcoinConfig,
+
+    /// Indicates whether composite queries are available or not.
+    pub composite_queries: FlagStatus,
 }
 
 impl Default for Config {
@@ -207,6 +210,7 @@ impl Default for Config {
                 testnet_canister_id: Some(bitcoin_testnet_canister_id),
                 mainnet_canister_id: Some(bitcoin_mainnet_canister_id),
             },
+            composite_queries: FlagStatus::Disabled,
         }
     }
 }

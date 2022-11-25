@@ -25,12 +25,13 @@ use crate::{
     util::UniversalCanister,
 };
 use bitcoincore_rpc::{
-    bitcoin::{Address, Amount},
+    bitcoin::{Address, Amount, Txid},
     bitcoincore_rpc_json, Auth, Client, RpcApi,
 };
 use candid::{Decode, Encode, Nat};
 use canister_test::Canister;
 use ic_ckbtc_agent::CkBtcMinterAgent;
+use ic_ckbtc_minter::state::RetrieveBtcStatus;
 use ic_ckbtc_minter::updates::update_balance::{
     UpdateBalanceArgs, UpdateBalanceError, UpdateBalanceResult,
 };
@@ -44,6 +45,7 @@ use std::time::{Duration, Instant};
 pub const UNIVERSAL_VM_NAME: &str = "btc-node";
 
 pub const TIMEOUT_30S: Duration = Duration::from_secs(300);
+pub const RETREIEVE_BTC_STATUS_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// The default value of minimum confirmations on the Bitcoin server.
 pub const BTC_MIN_CONFIRMATIONS: u64 = 6;
@@ -100,7 +102,7 @@ pub async fn wait_for_bitcoin_balance<'a>(
 
 /// Wait until we have a tx in btc mempool
 /// Timeout after TIMEOUT_30S if the minter doesn't successfully find a new tx in the timeframe.
-pub async fn wait_for_mempool_change(btc_rpc: &Client, logger: &Logger) {
+pub async fn wait_for_mempool_change(btc_rpc: &Client, logger: &Logger) -> Vec<Txid> {
     let start = Instant::now();
     loop {
         if start.elapsed() >= TIMEOUT_30S {
@@ -108,17 +110,52 @@ pub async fn wait_for_mempool_change(btc_rpc: &Client, logger: &Logger) {
         };
         match btc_rpc.get_raw_mempool() {
             Ok(r) => {
-                for txid in r.clone() {
+                for txid in r.iter() {
                     info!(&logger, "Tx in mempool : {:?}", txid);
                 }
                 if !r.is_empty() {
-                    break;
+                    return r;
                 }
             }
             Err(e) => {
                 info!(&logger, "Error {}", e.to_string());
             }
         };
+    }
+}
+
+/// Wait for minter to send a tx.
+/// Timeout after RETREIEVE_BTC_STATUS_TIMEOUT if the minter doesn't send a new tx.
+pub async fn wait_for_signed_tx(
+    ckbtc_minter_agent: &CkBtcMinterAgent,
+    logger: &Logger,
+    block_index: u64,
+) -> [u8; 32] {
+    let start = Instant::now();
+    loop {
+        if start.elapsed() >= RETREIEVE_BTC_STATUS_TIMEOUT {
+            panic!("No new signed tx emitted by minter");
+        };
+        match ckbtc_minter_agent
+            .retrieve_btc_status(block_index)
+            .await
+            .expect("failed to call retrieve_btc_status")
+        {
+            RetrieveBtcStatus::Pending => {
+                info!(&logger, "[retrieve_btc_status] : Tx building (1/3)")
+            }
+            RetrieveBtcStatus::Signing => {
+                info!(&logger, "[retrieve_btc_status] : Tx signing (2/3)")
+            }
+            RetrieveBtcStatus::Sending { txid } => {
+                info!(&logger, "[retrieve_btc_status] : Tx sent to mempool (3/3)");
+                return txid;
+            }
+            status => info!(
+                &logger,
+                "[retrieve_btc_status] unexpected status, got : {:?}", status
+            ),
+        }
     }
 }
 
