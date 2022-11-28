@@ -40,6 +40,8 @@ pub struct SubmittedBtcRetrieval {
     pub txid: [u8; 32],
     /// The list of UTXOs we used in the transaction.
     pub used_utxos: Vec<Utxo>,
+    /// The IC time at which we submitted the Bitcoin transaction.
+    pub submitted_at: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -231,12 +233,56 @@ impl CkBtcMinterState {
             + self.submitted_requests.len()
     }
 
+    /// Count the total of BTC managed by the minter at the moment
+    pub fn count_total_btc(&self) -> u64 {
+        self.available_utxos.iter().map(|u| u.value).sum::<u64>()
+            + self
+                .submitted_requests
+                .iter()
+                .map(|s| s.request.amount)
+                .sum::<u64>()
+    }
+
     /// Returns true if there is a pending retrieve_btc request with the given
     /// identifier.
     fn has_pending_request(&self, block_index: u64) -> bool {
         self.pending_retrieve_btc_requests
             .iter()
             .any(|req| req.block_index == block_index)
+    }
+
+    fn forget_utxo(&mut self, utxo: &Utxo) {
+        if let Some(account) = self.outpoint_account.remove(&utxo.outpoint) {
+            let last_utxo = match self.utxos_state_addresses.get_mut(&account) {
+                Some(utxo_set) => {
+                    utxo_set.remove(utxo);
+                    utxo_set.is_empty()
+                }
+                None => false,
+            };
+            if last_utxo {
+                self.utxos_state_addresses.remove(&account);
+            }
+        }
+    }
+
+    pub fn finalize_request(&mut self, block_index: u64) {
+        if let Some(pos) = self
+            .submitted_requests
+            .iter()
+            .position(|req| req.request.block_index == block_index)
+        {
+            let submitted_req = self.submitted_requests.swap_remove(pos);
+            for utxo in submitted_req.used_utxos.iter() {
+                self.forget_utxo(utxo);
+            }
+            self.push_finalized_request(FinalizedBtcRetrieval {
+                request: submitted_req.request,
+                state: FinalizedStatus::Confirmed {
+                    txid: submitted_req.txid,
+                },
+            });
+        }
     }
 
     /// Marks the specified retrieve_btc request as in-flight.
