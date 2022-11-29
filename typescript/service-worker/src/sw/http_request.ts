@@ -32,8 +32,6 @@ async function fetchHostNameCanisterMap(): Promise<Record<string, [string, strin
   for (let i = 0; i < responseJson.length; i++) {
     objToBuild[responseJson[i].hostName] = [responseJson[i].canisterId, responseJson[i].icpUrl];
   }
-  console.log(objToBuild)
-
   return objToBuild;
 }
 
