@@ -117,6 +117,9 @@ def external_crates_repository(name, annotations):
             "bitflags": crate.spec(
                 version = "^1.2.1",
             ),
+            "bs58": crate.spec(
+                version = "0.4.0",
+            ),
             "ic_bls12_381": crate.spec(
                 version = "^0.7.1",
                 features = [
@@ -911,6 +914,9 @@ def external_crates_repository(name, annotations):
             ),
             "thiserror": crate.spec(
                 version = "^1.0",
+            ),
+            "thousands": crate.spec(
+                version = "^0.2.0",
             ),
             "thread_profiler": crate.spec(
                 version = "^0.3",

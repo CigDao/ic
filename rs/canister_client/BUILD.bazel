@@ -1,7 +1,7 @@
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
+# The package is deprecated, NET-1274.
 package(default_visibility = [
-    "//rs/canister_client/sender:__pkg__",
     "//rs/cup_explorer:__pkg__",
     "//rs/nns/init:__pkg__",
     "//rs/orchestrator:__pkg__",
@@ -11,7 +11,6 @@ package(default_visibility = [
     "//rs/rosetta-api:__subpackages__",
     "//rs/rust_canisters/canister_test:__pkg__",
     "//rs/scenario_tests:__pkg__",
-    "//rs/sns/integration_tests:__pkg__",
     "//rs/tests:__pkg__",
     "//rs/workload_generator:__pkg__",
 ])
@@ -65,6 +64,8 @@ rust_library(
     srcs = glob(["src/**"]),
     aliases = ALIASES,
     crate_name = "ic_canister_client",
+    # TODO(NET-1274)
+    deprecation = "Please consider https://crates.io/crates/ic-agent instead.",
     proc_macro_deps = MACRO_DEPENDENCIES,
     version = "0.8.0",
     deps = DEPENDENCIES,

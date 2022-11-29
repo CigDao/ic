@@ -31,8 +31,10 @@ ic-base-types = { path = "../types/base_types" }
 hex = "0.4.2"
 hyper-tls = "0.5.0"
 ic-artifact-pool = { path = "../artifact_pool" }
+ic-backup = { path = "../backup" }
 ic-btc-types = { path = "../bitcoin/types/public" }
 ic-canister-client = { path = "../canister_client" }
+ic-canister-client-sender = { path = "../canister_client/sender" }
 ic-cdk = "0.6.0"
 ic-certification = { path = "../certification" }
 ic-ckbtc-agent = { path = "../bitcoin/ckbtc/agent" }
@@ -152,6 +154,22 @@ name = "ic-systest-basic-health"
 path = "bin/basic_health_test.rs"
 
 [[bin]]
+name = "ic-systest-rotate-ecdsa-idkg-key"
+path = "bin/rotate_ecdsa_idkg_key_test.rs"
+
+[[bin]]
+name = "ic-systest-canister-http"
+path = "bin/canister_http_test.rs"
+
+[[bin]]
+name = "ic-systest-spec-compliance-application"
+path = "bin/spec_compliance_application_test.rs"
+
+[[bin]]
+name = "ic-systest-spec-compliance-system"
+path = "bin/spec_compliance_system_test.rs"
+
+[[bin]]
 name = "ic-systest-tecdsa-add-nodes"
 path = "bin/tecdsa_add_nodes_test.rs"
 
@@ -172,5 +190,42 @@ name = "ic-systest-icrc1-agent-test"
 path = "bin/icrc1_agent_test.rs"
 
 [[bin]]
+name = "ic-systest-workload-counter-canister-test"
+path = "bin/workload_counter_canister_test.rs"
+
+[[bin]]
+name = "ic-systest-create-subnet-hourly-test"
+path = "bin/create_subnet_hourly_test.rs"
+
+[[bin]]
+name = "ic-systest-create-subnet-pre-master-test"
+path = "bin/create_subnet_pre_master_test.rs"
+
+[[bin]]
+name = "ic-systest-rejoin-test"
+path = "bin/rejoin_test.rs"
+
+[[bin]]
+name = "ic-systest-liveness-with-equivocation-test"
+path = "bin/liveness_with_equivocation_test.rs"
+
+
+[[bin]]
+name = "ic-systest-cow-safety-test"
+path = "bin/cow_safety_test.rs"
+
+[[bin]]
+name = "ic-systest-replica-determinism-test"
+path = "bin/replica_determinism_test.rs"
+
+[[bin]]
+name = "ic-systest-safety-test"
+path = "bin/safety_test.rs"
+
+[[bin]]
 name = "test-driver-e2e-scenarios"
 path = "bin/test_driver_e2e_scenarios.rs"
+
+[[bin]]
+name = "ic-systest-upgrade-compatibility"
+path = "bin/upgrade_compatibility_test.rs"

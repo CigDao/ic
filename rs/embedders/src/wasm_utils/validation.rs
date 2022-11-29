@@ -1,7 +1,7 @@
 //! This module is responsible for validating the wasm binaries that are
 //! installed on the Internet Computer.
 
-use super::{errors::into_parity_wasm_error, WasmImportsDetails, WasmValidationDetails};
+use super::{errors::into_wasm_error, WasmImportsDetails, WasmValidationDetails};
 
 use ic_config::embedders::Config as EmbeddersConfig;
 use ic_replicated_state::canister_state::execution_state::{
@@ -426,6 +426,16 @@ fn get_valid_system_apis() -> HashMap<String, HashMap<String, FunctionSignature>
                 API_VERSION_IC0,
                 FunctionSignature {
                     param_types: vec![ValueType::I32],
+                    return_type: vec![ValueType::I64],
+                },
+            )],
+        ),
+        (
+            "canister_version",
+            vec![(
+                API_VERSION_IC0,
+                FunctionSignature {
+                    param_types: vec![],
                     return_type: vec![ValueType::I64],
                 },
             )],
@@ -1168,7 +1178,7 @@ pub(super) fn validate_wasm_binary(
 ) -> Result<WasmValidationDetails, WasmValidationError> {
     can_compile(wasm)?;
     let module = parity_wasm::deserialize_buffer::<Module>(wasm.as_slice())
-        .map_err(|err| WasmValidationError::ParityDeserializeError(into_parity_wasm_error(err)))?;
+        .map_err(|err| WasmValidationError::WasmDeserializeError(into_wasm_error(err)))?;
     let imports_details = validate_import_section(&module)?;
     let reserved_exports = validate_export_section(&module)?;
     validate_data_section(&module)?;

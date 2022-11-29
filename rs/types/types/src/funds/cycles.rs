@@ -7,6 +7,7 @@ use std::{
     fmt,
     ops::{Add, AddAssign, Div, Mul, Sub, SubAssign},
 };
+use thousands::Separable;
 
 /// Struct to handle cycles on the IC. They are maintained as a
 /// simple u128. We implement our own arithmetic functions on them so that we
@@ -133,6 +134,14 @@ impl Mul<u64> for Cycles {
     }
 }
 
+impl Mul<u128> for Cycles {
+    type Output = Self;
+
+    fn mul(self, rhs: u128) -> Self {
+        Self(self.0.saturating_mul(Cycles::from(rhs).0))
+    }
+}
+
 impl Mul<usize> for Cycles {
     type Output = Self;
 
@@ -149,6 +158,14 @@ impl Div<u64> for Cycles {
     }
 }
 
+impl Div<u128> for Cycles {
+    type Output = Self;
+
+    fn div(self, rhs: u128) -> Self {
+        Self(self.0.saturating_div(Cycles::from(rhs).0))
+    }
+}
+
 impl Div<usize> for Cycles {
     type Output = Self;
 
@@ -159,7 +176,7 @@ impl Div<usize> for Cycles {
 
 impl fmt::Display for Cycles {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.0.separate_with_underscores())
     }
 }
 
@@ -207,20 +224,73 @@ mod test {
             Cycles::from(std::u128::MAX)
         );
         assert_eq!(
-            Cycles::from(std::u128::MAX) + Cycles::from(10u128),
+            Cycles::from(std::u128::MAX) + Cycles::from(10_u128),
             Cycles::from(std::u128::MAX)
         );
     }
 
     #[test]
-    fn test_multiplication() {
+    fn test_multiplication_u64() {
         assert_eq!(Cycles::zero() * std::u64::MAX, Cycles::zero());
         assert_eq!(
             Cycles::from(std::u128::MAX) * std::u64::MAX,
             Cycles::from(std::u128::MAX)
         );
         assert_eq!(
-            Cycles::from(std::u128::MAX) * 10u64,
+            Cycles::from(std::u128::MAX) * 10_u64,
+            Cycles::from(std::u128::MAX)
+        );
+    }
+
+    #[test]
+    fn test_multiplication_u128() {
+        assert_eq!(Cycles::zero() * std::u128::MAX, Cycles::zero());
+        assert_eq!(
+            Cycles::from(std::u128::MAX) * std::u128::MAX,
+            Cycles::from(std::u128::MAX)
+        );
+        assert_eq!(
+            Cycles::from(std::u128::MAX) * 10_u128,
+            Cycles::from(std::u128::MAX)
+        );
+    }
+
+    #[test]
+    fn test_multiplication_usize() {
+        assert_eq!(Cycles::zero() * std::usize::MAX, Cycles::zero());
+        assert_eq!(
+            Cycles::from(std::u128::MAX) * std::usize::MAX,
+            Cycles::from(std::u128::MAX)
+        );
+        assert_eq!(
+            Cycles::from(std::u128::MAX) * 10_usize,
+            Cycles::from(std::u128::MAX)
+        );
+    }
+
+    #[test]
+    fn test_division_u64() {
+        assert_eq!(Cycles::zero() / std::u64::MAX, Cycles::zero());
+        assert_eq!(
+            Cycles::from(std::u128::MAX) / 1_u64,
+            Cycles::from(std::u128::MAX)
+        );
+    }
+
+    #[test]
+    fn test_division_u128() {
+        assert_eq!(Cycles::zero() / std::u128::MAX, Cycles::zero());
+        assert_eq!(
+            Cycles::from(std::u128::MAX) / 1_u128,
+            Cycles::from(std::u128::MAX)
+        );
+    }
+
+    #[test]
+    fn test_division_usize() {
+        assert_eq!(Cycles::zero() / std::usize::MAX, Cycles::zero());
+        assert_eq!(
+            Cycles::from(std::u128::MAX) / 1_usize,
             Cycles::from(std::u128::MAX)
         );
     }
@@ -275,5 +345,25 @@ mod test {
     fn test_into_parts() {
         let nom = Cycles::new(123456789012345678901234567890);
         assert_eq!(nom.into_parts(), (nom.high64(), nom.low64()))
+    }
+
+    #[test]
+    fn test_formatting_with_underscore_saparators_small_number() {
+        let cycles = Cycles::new(1_234_567_890);
+        assert_eq!(format!("{}", cycles), "1_234_567_890");
+        assert_eq!(format!("{:?}", cycles), "Cycles(1234567890)");
+    }
+
+    #[test]
+    fn test_formatting_with_underscore_saparators_u128_max() {
+        let cycles = Cycles::new(u128::MAX);
+        assert_eq!(
+            format!("{}", cycles),
+            "340_282_366_920_938_463_463_374_607_431_768_211_455"
+        );
+        assert_eq!(
+            format!("{:?}", cycles),
+            "Cycles(340282366920938463463374607431768211455)"
+        );
     }
 }

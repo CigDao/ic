@@ -78,6 +78,7 @@ impl From<ErrorCode> for RejectCode {
             CanisterDidNotReply => CanisterError,
             CanisterOutOfMemory => CanisterError,
             CanisterOutputQueueFull => SysTransient,
+            CanisterQueueNotEmpty => SysTransient,
             CanisterStopped => CanisterError,
             CanisterStopping => CanisterError,
             CanisterNotStopped => CanisterError,
@@ -99,6 +100,7 @@ impl From<ErrorCode> for RejectCode {
             QueryCallGraphTooDeep => CanisterError,
             QueryCallGraphTotalInstructionLimitExceeded => CanisterError,
             CompositeQueryCalledInReplicatedMode => CanisterError,
+            CanisterNotHostedBySubnet => CanisterReject,
         }
     }
 }
@@ -115,6 +117,7 @@ pub enum ErrorCode {
     MaxNumberOfCanistersReached = 102,
     CanisterOutputQueueFull = 201,
     IngressMessageTimeout = 202,
+    CanisterQueueNotEmpty = 203,
     CanisterNotFound = 301,
     CanisterMethodNotFound = 302,
     CanisterAlreadyInstalled = 303,
@@ -122,6 +125,7 @@ pub enum ErrorCode {
     InsufficientMemoryAllocation = 402,
     InsufficientCyclesForCreateCanister = 403,
     SubnetNotFound = 404,
+    CanisterNotHostedBySubnet = 405,
     CanisterOutOfCycles = 501,
     CanisterTrapped = 502,
     CanisterCalledTrap = 503,
@@ -159,6 +163,7 @@ impl TryFrom<u64> for ErrorCode {
             102 => Ok(ErrorCode::MaxNumberOfCanistersReached),
             201 => Ok(ErrorCode::CanisterOutputQueueFull),
             202 => Ok(ErrorCode::IngressMessageTimeout),
+            203 => Ok(ErrorCode::CanisterQueueNotEmpty),
             301 => Ok(ErrorCode::CanisterNotFound),
             302 => Ok(ErrorCode::CanisterMethodNotFound),
             303 => Ok(ErrorCode::CanisterAlreadyInstalled),
@@ -166,6 +171,7 @@ impl TryFrom<u64> for ErrorCode {
             402 => Ok(ErrorCode::InsufficientMemoryAllocation),
             403 => Ok(ErrorCode::InsufficientCyclesForCreateCanister),
             404 => Ok(ErrorCode::SubnetNotFound),
+            405 => Ok(ErrorCode::CanisterNotHostedBySubnet),
             501 => Ok(ErrorCode::CanisterOutOfCycles),
             502 => Ok(ErrorCode::CanisterTrapped),
             503 => Ok(ErrorCode::CanisterCalledTrap),

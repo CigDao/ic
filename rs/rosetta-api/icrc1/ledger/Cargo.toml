@@ -19,7 +19,7 @@ ic-base-types = { path = "../../../types/base_types" }
 ic-crypto-tree-hash = { path = "../../../crypto/tree_hash" }
 ic-cdk = { version = "0.6.0" }
 ic-cdk-macros = { version = "0.6.0" }
-ic-icrc1 = { path = "../" }
+ic-icrc1 = { path = ".." }
 ic-icrc1-client = { path = "../client"}
 ic-ledger-canister-core = { path = "../../ledger_canister_core" }
 ic-ledger-core = { path = "../../ledger_core" }
@@ -30,6 +30,7 @@ serde_bytes = "0.11"
 
 [dev-dependencies]
 cddl = "0.9.0-beta.1"
+ic-icrc1-ledger-sm-tests = { path = "sm-tests" }
 ic-test-utilities-load-wasm = { path = "../../../test_utilities/load_wasm" }
 ic-state-machine-tests = { path = "../../../state_machine_tests" }
 leb128 = "0.2.4"

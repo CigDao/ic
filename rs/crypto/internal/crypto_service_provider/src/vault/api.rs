@@ -2,6 +2,7 @@ use crate::api::{CspCreateMEGaKeyError, CspThresholdSignError};
 use crate::key_id::KeyId;
 use crate::types::CspPublicCoefficients;
 use crate::types::{CspPop, CspPublicKey, CspSignature};
+use crate::vault::CryptoError;
 use ic_crypto_internal_seed::Seed;
 use ic_crypto_internal_threshold_sig_bls12381::api::ni_dkg_errors;
 use ic_crypto_internal_threshold_sig_ecdsa::{
@@ -441,6 +442,7 @@ pub trait PublicKeyStoreCspVault {
         &self,
         public_keys: CurrentNodePublicKeys,
     ) -> Result<bool, CspPublicKeyStoreError>;
+
     /// Returns the node's current public keys.
     ///
     /// For keys that are periodically rotated (such as the iDKG dealing encryption key pair) only
@@ -553,12 +555,11 @@ pub trait IDkgProtocolCspVault {
         opener_key_id: &KeyId,
     ) -> Result<CommitmentOpening, IDkgOpenTranscriptError>;
 
-    /// Retains canister threshold keys identified by `active_key_ids`, and removes other
-    /// canister threshold keys within the same IDKG threshold keys scope from the
-    /// canister SKS.
-    fn idkg_retain_threshold_keys_if_present(
+    /// See [`crate::api::CspIDkgProtocol::idkg_retain_active_keys`].
+    fn idkg_retain_active_keys(
         &self,
         active_key_ids: BTreeSet<KeyId>,
+        oldest_public_key: MEGaPublicKey,
     ) -> Result<(), IDkgRetainThresholdKeysError>;
 }
 
@@ -586,6 +587,16 @@ pub trait ThresholdEcdsaSignerCspVault {
 pub enum PublicRandomSeedGeneratorError {
     /// Internal error, e.g., an RPC error.
     InternalError { internal_error: String },
+}
+
+impl From<PublicRandomSeedGeneratorError> for CryptoError {
+    fn from(error: PublicRandomSeedGeneratorError) -> CryptoError {
+        match error {
+            PublicRandomSeedGeneratorError::InternalError { internal_error } => {
+                CryptoError::InternalError { internal_error }
+            }
+        }
+    }
 }
 
 /// Operations of [`CspVault`] for generating public random seed.

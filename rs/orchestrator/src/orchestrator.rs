@@ -70,16 +70,16 @@ impl Orchestrator {
         args.create_dirs();
         let metrics_addr = args.get_metrics_addr();
         let config = args.get_ic_config();
-        let node_id = tokio::task::block_in_place({
-            let crypto_config = config.crypto.clone();
-            move || {
-                let (_node_pks, node_id) = get_node_keys_or_generate_if_missing(
-                    &crypto_config,
-                    Some(tokio::runtime::Handle::current()),
-                );
-                node_id
-            }
-        });
+        let crypto_config = config.crypto.clone();
+        let node_id = tokio::task::spawn_blocking(move || {
+            get_node_keys_or_generate_if_missing(
+                &crypto_config,
+                Some(tokio::runtime::Handle::current()),
+            )
+            .1
+        })
+        .await
+        .unwrap();
 
         let (logger, _async_log_guard) =
             new_replica_logger_from_config(&config.orchestrator_logger);
@@ -117,19 +117,21 @@ impl Orchestrator {
             logger.clone(),
         ));
 
-        let crypto = tokio::task::block_in_place({
-            let c_log = logger.clone();
-            let c_registry = registry.clone();
-            let crypto_config = config.crypto.clone();
-            move || {
-                Arc::new(CryptoComponent::new_for_non_replica_process(
-                    &crypto_config,
-                    Some(tokio::runtime::Handle::current()),
-                    c_registry.get_registry_client(),
-                    c_log.clone(),
-                ))
-            }
-        });
+        let c_log = logger.clone();
+        let c_registry = registry.clone();
+        let crypto_config = config.crypto.clone();
+        let c_metrics = metrics_registry.clone();
+        let crypto = tokio::task::spawn_blocking(move || {
+            Arc::new(CryptoComponent::new_for_non_replica_process(
+                &crypto_config,
+                Some(tokio::runtime::Handle::current()),
+                c_registry.get_registry_client(),
+                c_log.clone(),
+                Some(&c_metrics),
+            ))
+        })
+        .await
+        .unwrap();
 
         let mut registration = NodeRegistration::new(
             logger.clone(),
@@ -235,7 +237,7 @@ impl Orchestrator {
         })
     }
 
-    /// Starts two asynchronous tasks:
+    /// Starts four asynchronous tasks:
     ///
     /// 1. One that constantly monitors for a new CUP pointing to a newer
     /// replica version and executes the upgrade to this version if such a
@@ -247,6 +249,13 @@ impl Orchestrator {
     /// new data center is added, orchestrator will generate a new firewall
     /// configuration allowing access from the IP range specified in the DC
     /// record.
+    ///
+    /// 3. Third task starts listening for incoming requests to the orchestrator
+    /// dashboard.
+    ///
+    /// 4. Fourth task checks if this node is part of an tECDSA subnet. If so,
+    /// and it is also time to rotate the iDKG encryption key, instruct crypto
+    /// to do the rotation and attempt to register the rotated key.
     pub fn spawn_tasks(&mut self) {
         async fn upgrade_checks(
             maybe_subnet_id: Arc<RwLock<Option<SubnetId>>>,

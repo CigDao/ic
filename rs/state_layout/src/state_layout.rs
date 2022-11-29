@@ -130,6 +130,7 @@ pub struct CanisterStateBits {
     pub task_queue: Vec<ExecutionTask>,
     pub time_of_last_allocation_charge_nanos: u64,
     pub global_timer_nanos: Option<u64>,
+    pub canister_version: u64,
 }
 
 /// This struct contains bits of the `BitcoinState` that are not already
@@ -603,7 +604,7 @@ impl StateLayout {
     ///
     /// Postcondition:
     ///   height ∉ self.checkpoint_heights()
-    pub fn remove_checkpoint(&self, height: Height) -> Result<(), LayoutError> {
+    pub fn force_remove_checkpoint(&self, height: Height) -> Result<(), LayoutError> {
         let cp_name = self.checkpoint_name(height);
         let cp_path = self.checkpoints().join(&cp_name);
         let tmp_path = self.fs_tmp().join(&cp_name);
@@ -618,6 +619,23 @@ impl StateLayout {
                 ),
                 io_err: err,
             })
+    }
+
+    /// Removes a checkpoint for a given height if it exists and it is not the latest checkpoint.
+    /// Crashes in debug if removal of the last checkpoint is ever attempted.
+    ///
+    /// Postcondition:
+    ///   height ∉ self.checkpoint_heights()[0:-1]
+    pub fn try_remove_checkpoint(&self, height: Height) -> Result<(), LayoutError> {
+        let mut heights = self.checkpoint_heights()?;
+        if heights.is_empty() {
+            return Err(LayoutError::NotFound(height));
+        }
+        if heights.pop() == Some(height) {
+            debug_assert!(false, "Trying to remove the last checkpoint");
+            return Err(LayoutError::LatestCheckpoint(height));
+        }
+        self.force_remove_checkpoint(height)
     }
 
     /// Marks the checkpoint with the specified height as diverged.
@@ -760,7 +778,7 @@ impl StateLayout {
             // This might happen if we archived a checkpoint, then
             // recomputed it again, and then restarted again.  We don't need
             // another copy.
-            return self.remove_checkpoint(height);
+            return self.force_remove_checkpoint(height);
         }
 
         std::fs::rename(&cp_path, &dst).map_err(|err| LayoutError::IoError {
@@ -1133,7 +1151,7 @@ where
         let file = open_for_write(&self.path)?;
         let mut writer = std::io::BufWriter::new(file);
         writer
-            .write(&serialized)
+            .write_all(&serialized)
             .map_err(|io_err| LayoutError::IoError {
                 path: self.path.clone(),
                 message: "failed to write serialized protobuf to disk".to_string(),
@@ -1305,6 +1323,7 @@ impl From<CanisterStateBits> for pb_canister_state_bits::CanisterStateBits {
             time_of_last_allocation_charge_nanos: Some(item.time_of_last_allocation_charge_nanos),
             task_queue: item.task_queue.iter().map(|v| v.into()).collect(),
             global_timer_nanos: item.global_timer_nanos,
+            canister_version: item.canister_version,
         }
     }
 }
@@ -1389,6 +1408,7 @@ impl TryFrom<pb_canister_state_bits::CanisterStateBits> for CanisterStateBits {
             )?,
             task_queue,
             global_timer_nanos: value.global_timer_nanos,
+            canister_version: value.canister_version,
         })
     }
 }
@@ -1818,6 +1838,7 @@ mod test {
             time_of_last_allocation_charge_nanos: mock_time().as_nanos_since_unix_epoch(),
             task_queue: vec![],
             global_timer_nanos: None,
+            canister_version: 0,
         }
     }
 

@@ -778,13 +778,15 @@ impl SystemApiImpl {
         match &mut self.api_type {
             ApiType::Start { .. }
             | ApiType::Init { .. }
-            | ApiType::SystemTask { .. }
             | ApiType::Cleanup { .. }
             | ApiType::ReplicatedQuery { .. }
             | ApiType::PreUpgrade { .. }
             | ApiType::InspectMessage { .. }
             | ApiType::NonReplicatedQuery { .. } => (),
-            ApiType::Update {
+            ApiType::SystemTask {
+                outgoing_request, ..
+            }
+            | ApiType::Update {
                 outgoing_request, ..
             }
             | ApiType::ReplyCallback {
@@ -2386,6 +2388,26 @@ impl SystemApi for SystemApiImpl {
         result
     }
 
+    fn ic0_canister_version(&self) -> HypervisorResult<u64> {
+        let result = match &self.api_type {
+            ApiType::Start { .. } => Err(self.error_for("ic0_canister_version")),
+            ApiType::Init { .. }
+            | ApiType::SystemTask { .. }
+            | ApiType::Update { .. }
+            | ApiType::Cleanup { .. }
+            | ApiType::NonReplicatedQuery { .. }
+            | ApiType::ReplicatedQuery { .. }
+            | ApiType::PreUpgrade { .. }
+            | ApiType::ReplyCallback { .. }
+            | ApiType::RejectCallback { .. }
+            | ApiType::InspectMessage { .. } => {
+                Ok(self.sandbox_safe_system_state.canister_version())
+            }
+        };
+        trace_syscall!(self, ic0_canister_version, result);
+        result
+    }
+
     fn out_of_instructions(&mut self, instruction_counter: i64) -> HypervisorResult<i64> {
         let result = self
             .out_of_instructions_handler
@@ -2550,8 +2572,8 @@ impl SystemApi for SystemApiImpl {
 
     fn ic0_data_certificate_present(&self) -> HypervisorResult<i32> {
         let result = match &self.api_type {
-            ApiType::Start { .. }
-            | ApiType::Init { .. }
+            ApiType::Start { .. } => Err(self.error_for("ic0_data_certificate_present")),
+            ApiType::Init { .. }
             | ApiType::ReplyCallback { .. }
             | ApiType::RejectCallback { .. }
             | ApiType::Cleanup { .. }

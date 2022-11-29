@@ -29,6 +29,7 @@ rust_library(
     version = "0.8.0",
     deps = [
         "//rs/crypto/sha",
+        "//rs/rosetta-api/icrc1",
         "//rs/rosetta-api/ledger_canister_core",
         "//rs/rosetta-api/ledger_core",
         "//rs/rust_canisters/dfn_core",
@@ -66,6 +67,7 @@ motoko_binary(
 rust_canister(
     name = "test_notified_canister",
     srcs = ["test/notified.rs"],
+    service_file = ":test/notified.did",
     deps = [
         ":icp_ledger",
         "//rs/rust_canisters/dfn_candid",

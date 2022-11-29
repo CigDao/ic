@@ -597,6 +597,18 @@ fn checkpoints_outlive_state_manager() {
 
             let (_height, state) = state_manager.take_tip();
             state_manager.commit_and_certify(state, height(2), CertificationScope::Full);
+
+            let (_height, state) = state_manager.take_tip();
+            state_manager.commit_and_certify(state, height(3), CertificationScope::Metadata);
+
+            let (_height, state) = state_manager.take_tip();
+            state_manager.commit_and_certify(state, height(4), CertificationScope::Metadata);
+
+            let (_height, state) = state_manager.take_tip();
+            state_manager.commit_and_certify(state, height(5), CertificationScope::Full);
+
+            let (_height, state) = state_manager.take_tip();
+            state_manager.commit_and_certify(state, height(6), CertificationScope::Full);
         }
 
         let metrics_registry = MetricsRegistry::new();
@@ -615,12 +627,12 @@ fn checkpoints_outlive_state_manager() {
 
         assert_eq!(
             state_manager.list_state_heights(CERT_ANY),
-            vec![height(0), height(2)]
+            vec![height(0), height(1), height(2), height(5), height(6)]
         );
 
         let checkpointed_state = state_manager.get_latest_state();
 
-        assert_eq!(checkpointed_state.height(), height(2));
+        assert_eq!(checkpointed_state.height(), height(6));
         assert_eq!(
             canister_ids(checkpointed_state.get_ref()),
             vec![canister_id]
@@ -970,7 +982,7 @@ fn can_remove_checkpoints_and_noncheckpoints_separately() {
 
         assert_eq!(
             state_manager.list_state_heights(CERT_ANY),
-            vec![height(0), height(6)],
+            vec![height(0), height(4), height(6)],
         );
     });
 }
@@ -1030,7 +1042,7 @@ fn can_keep_last_checkpoint_and_higher_states_after_removal() {
 
         assert_eq!(
             state_manager.list_state_heights(CERT_ANY),
-            vec![height(0), height(8),],
+            vec![height(0), height(6), height(8),],
         );
         assert_eq!(height(8), state_manager.latest_state_height());
         let latest_state = state_manager.get_latest_state();
@@ -3056,6 +3068,20 @@ fn remove_too_many_diverged_states() {
             height(300)
         );
         assert!(num_markers <= 100);
+    });
+}
+
+#[test]
+#[should_panic]
+fn debug_assert_last_checkpoint() {
+    state_manager_test(|_metrics, state_manager| {
+        let (_, state) = state_manager.take_tip();
+        state_manager.commit_and_certify(state, height(1), CertificationScope::Full);
+        wait_for_checkpoint(&state_manager, height(1));
+
+        let _ = state_manager
+            .state_layout()
+            .try_remove_checkpoint(height(1));
     });
 }
 

@@ -279,15 +279,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "android_system_properties"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "819e7219dbd41043ac279b19830f2efc897156490d7fd6ea916720117ee66311"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "ansi_term"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1129,6 +1120,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "call-tree-test"
+version = "0.8.0"
+dependencies = [
+ "dfn_core",
+ "dfn_json",
+ "dfn_macro",
+ "futures",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "camino"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1176,6 +1179,24 @@ dependencies = [
  "proc-macro2 1.0.47",
  "quote 1.0.21",
  "syn 1.0.103",
+]
+
+[[package]]
+name = "canister-creator"
+version = "0.1.0"
+dependencies = [
+ "candid",
+ "canister-test",
+ "dfn_core",
+ "dfn_json",
+ "dfn_macro",
+ "futures",
+ "ic-ic00-types",
+ "ic-state-machine-tests",
+ "ic-test-utilities",
+ "ic-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1359,17 +1380,15 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.22"
+version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfd4d1b31faaa3a89d7934dbded3111da0d2ef28e3ebccdb4f0179f5929d1ef1"
+checksum = "670ad68c9088c2a963aaa298cb369688cf3f9465ce5e2d4ca10e6e0098a1ce73"
 dependencies = [
- "iana-time-zone",
- "js-sys",
+ "libc",
  "num-integer",
  "num-traits",
  "serde",
  "time 0.1.44",
- "wasm-bindgen",
  "winapi 0.3.9",
 ]
 
@@ -2065,36 +2084,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "curl"
-version = "0.4.44"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "509bd11746c7ac09ebd19f0b17782eae80aadee26237658a6b4808afb5c11a22"
-dependencies = [
- "curl-sys",
- "libc",
- "openssl-probe",
- "openssl-sys",
- "schannel",
- "socket2 0.4.7",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "curl-sys"
-version = "0.4.59+curl-7.86.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cfce34829f448b08f55b7db6d0009e23e2e86a34e8c2b366269bf5799b4a407"
-dependencies = [
- "cc",
- "libc",
- "libz-sys",
- "openssl-sys",
- "pkg-config",
- "vcpkg",
- "winapi 0.3.9",
-]
-
-[[package]]
 name = "curve25519-dalek"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2127,50 +2116,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34ac344c7efccb80cd25bc61b2170aec26f2f693fd40e765a539a1243db48c71"
 dependencies = [
  "cfg-if 0.1.10",
-]
-
-[[package]]
-name = "cxx"
-version = "1.0.80"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b7d4e43b25d3c994662706a1d4fcfc32aaa6afd287502c111b237093bb23f3a"
-dependencies = [
- "cc",
- "cxxbridge-flags",
- "cxxbridge-macro",
- "link-cplusplus",
-]
-
-[[package]]
-name = "cxx-build"
-version = "1.0.80"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84f8829ddc213e2c1368e51a2564c552b65a8cb6a28f31e576270ac81d5e5827"
-dependencies = [
- "cc",
- "codespan-reporting",
- "once_cell",
- "proc-macro2 1.0.47",
- "quote 1.0.21",
- "scratch",
- "syn 1.0.103",
-]
-
-[[package]]
-name = "cxxbridge-flags"
-version = "1.0.80"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e72537424b474af1460806647c41d4b6d35d09ef7fe031c5c2fa5766047cc56a"
-
-[[package]]
-name = "cxxbridge-macro"
-version = "1.0.80"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "309e4fb93eed90e1e14bea0da16b209f81813ba9fc7830c20ed151dd7bc0a4d7"
-dependencies = [
- "proc-macro2 1.0.47",
- "quote 1.0.21",
- "syn 1.0.103",
 ]
 
 [[package]]
@@ -3726,30 +3671,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71a816c97c42258aa5834d07590b718b4c9a598944cd39a52dc25b351185d678"
 
 [[package]]
-name = "iana-time-zone"
-version = "0.1.53"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64c122667b287044802d6ce17ee2ddf13207ed924c712de9a66a5814d5b64765"
-dependencies = [
- "android_system_properties",
- "core-foundation-sys",
- "iana-time-zone-haiku",
- "js-sys",
- "wasm-bindgen",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "iana-time-zone-haiku"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0703ae284fc167426161c2e3f1da3ea71d94b21bedbcc9494e92b28e334e3dca"
-dependencies = [
- "cxx",
- "cxx-build",
-]
-
-[[package]]
 name = "ic-adapter-metrics"
 version = "0.8.0"
 dependencies = [
@@ -3989,7 +3910,6 @@ name = "ic-backup"
 version = "0.8.0"
 dependencies = [
  "clap 3.2.23",
- "curl",
  "ic-config",
  "ic-crypto-utils-threshold-sig-der",
  "ic-logger",
@@ -4001,6 +3921,7 @@ dependencies = [
  "ic-types",
  "json5",
  "rand 0.8.5",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_millis",
@@ -4167,6 +4088,7 @@ dependencies = [
  "ic-interfaces-registry",
  "ic-interfaces-registry-mocks",
  "ic-interfaces-state-manager",
+ "ic-interfaces-state-manager-mocks",
  "ic-logger",
  "ic-metrics",
  "ic-protobuf",
@@ -4444,6 +4366,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic-canisters-http-types"
+version = "0.8.0"
+dependencies = [
+ "candid",
+ "serde",
+ "serde_bytes",
+]
+
+[[package]]
 name = "ic-canonical-state"
 version = "0.8.0"
 dependencies = [
@@ -4577,13 +4508,14 @@ dependencies = [
  "async-trait",
  "bech32 0.9.1",
  "bitcoin",
+ "bs58",
  "candid",
  "canister-test",
  "ciborium",
- "dfn_http_metrics",
  "hex",
  "ic-base-types",
  "ic-btc-types",
+ "ic-canisters-http-types",
  "ic-cdk",
  "ic-cdk-macros",
  "ic-crypto-extended-bip32",
@@ -4650,6 +4582,7 @@ dependencies = [
  "ic-interfaces-certified-stream-store",
  "ic-interfaces-registry",
  "ic-interfaces-state-manager",
+ "ic-interfaces-state-manager-mocks",
  "ic-logger",
  "ic-messaging",
  "ic-metrics",
@@ -5758,6 +5691,7 @@ dependencies = [
  "ic-ic00-types",
  "ic-interfaces",
  "ic-interfaces-state-manager",
+ "ic-interfaces-state-manager-mocks",
  "ic-logger",
  "ic-metrics",
  "ic-nns-constants",
@@ -5898,28 +5832,37 @@ dependencies = [
  "hex",
  "http",
  "hyper",
+ "hyper-tls",
+ "ic-agent",
  "ic-async-utils",
  "ic-certification",
  "ic-config",
  "ic-crypto-tls-interfaces",
+ "ic-crypto-tls-interfaces-mocks",
  "ic-crypto-tree-hash",
  "ic-crypto-utils-threshold-sig-der",
  "ic-error-types",
  "ic-interfaces",
  "ic-interfaces-p2p",
  "ic-interfaces-registry",
+ "ic-interfaces-registry-mocks",
  "ic-interfaces-state-manager",
+ "ic-interfaces-state-manager-mocks",
  "ic-logger",
  "ic-metrics",
  "ic-pprof",
+ "ic-protobuf",
  "ic-registry-client-helpers",
+ "ic-registry-keys",
  "ic-registry-provisional-whitelist",
+ "ic-registry-routing-table",
  "ic-registry-subnet-type",
  "ic-replicated-state",
  "ic-test-utilities",
  "ic-types",
  "ic-validator",
  "maplit",
+ "native-tls",
  "pretty_assertions 0.7.2",
  "prometheus 0.12.0",
  "proptest",
@@ -5933,6 +5876,7 @@ dependencies = [
  "threadpool",
  "tokio",
  "tower",
+ "tower-test",
  "url",
 ]
 
@@ -6016,6 +5960,67 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic-icrc1-benchmark-generator"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "candid",
+ "ciborium",
+ "dfn_http_metrics",
+ "futures",
+ "getrandom 0.2.8",
+ "hex",
+ "ic-base-types",
+ "ic-cdk",
+ "ic-cdk-macros",
+ "ic-crypto-tree-hash",
+ "ic-icrc1",
+ "ic-icrc1-benchmark-worker",
+ "ic-icrc1-client",
+ "ic-icrc1-client-cdk",
+ "ic-ledger-canister-core",
+ "ic-ledger-core",
+ "ic-metrics-encoder",
+ "num-traits",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "ring",
+ "serde",
+ "serde_bytes",
+]
+
+[[package]]
+name = "ic-icrc1-benchmark-worker"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "candid",
+ "ciborium",
+ "dfn_http_metrics",
+ "futures",
+ "getrandom 0.2.8",
+ "hex",
+ "ic-base-types",
+ "ic-cdk",
+ "ic-cdk-macros",
+ "ic-crypto-tree-hash",
+ "ic-icrc1",
+ "ic-icrc1-client",
+ "ic-icrc1-client-cdk",
+ "ic-ledger-canister-core",
+ "ic-ledger-core",
+ "ic-metrics-encoder",
+ "num-traits",
+ "rand 0.8.5",
+ "rand_chacha 0.3.1",
+ "rand_core 0.6.4",
+ "ring",
+ "serde",
+ "serde_bytes",
+]
+
+[[package]]
 name = "ic-icrc1-client"
 version = "0.8.0"
 dependencies = [
@@ -6078,6 +6083,7 @@ dependencies = [
  "ic-crypto-tree-hash",
  "ic-icrc1",
  "ic-icrc1-client",
+ "ic-icrc1-ledger-sm-tests",
  "ic-ledger-canister-core",
  "ic-ledger-core",
  "ic-metrics-encoder",
@@ -6088,6 +6094,18 @@ dependencies = [
  "proptest",
  "serde",
  "serde_bytes",
+]
+
+[[package]]
+name = "ic-icrc1-ledger-sm-tests"
+version = "0.8.0"
+dependencies = [
+ "candid",
+ "ic-base-types",
+ "ic-icrc1",
+ "ic-ledger-canister-core",
+ "ic-ledger-core",
+ "ic-state-machine-tests",
 ]
 
 [[package]]
@@ -6144,6 +6162,7 @@ dependencies = [
  "ic-interfaces",
  "ic-interfaces-registry",
  "ic-interfaces-state-manager",
+ "ic-interfaces-state-manager-mocks",
  "ic-logger",
  "ic-metrics",
  "ic-protobuf",
@@ -6251,6 +6270,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic-interfaces-state-manager-mocks"
+version = "0.8.0"
+dependencies = [
+ "ic-crypto-tree-hash",
+ "ic-interfaces-state-manager",
+ "ic-replicated-state",
+ "ic-types",
+ "mockall 0.11.3",
+]
+
+[[package]]
 name = "ic-interfaces-transport"
 version = "0.8.0"
 dependencies = [
@@ -6301,7 +6331,7 @@ dependencies = [
 name = "ic-ledger-canister-blocks-synchronizer-test-utils"
 version = "0.1.0"
 dependencies = [
- "ic-canister-client",
+ "ic-canister-client-sender",
  "ic-cdk",
  "ic-ledger-canister-blocks-synchronizer",
  "ic-ledger-core",
@@ -6391,6 +6421,7 @@ dependencies = [
  "ic-interfaces-certified-stream-store",
  "ic-interfaces-registry",
  "ic-interfaces-state-manager",
+ "ic-interfaces-state-manager-mocks",
  "ic-logger",
  "ic-metrics",
  "ic-protobuf",
@@ -6460,7 +6491,6 @@ dependencies = [
  "rand_chacha 0.3.1",
  "rust_decimal",
  "serde",
- "url",
 ]
 
 [[package]]
@@ -7694,6 +7724,7 @@ dependencies = [
  "ic-agent",
  "ic-base-types",
  "ic-canister-client",
+ "ic-canister-client-sender",
  "ic-cdk",
  "ic-constants",
  "ic-crypto-internal-threshold-sig-bls12381",
@@ -7984,7 +8015,6 @@ dependencies = [
  "dfn_protobuf",
  "hex",
  "ic-base-types",
- "ic-canister-client",
  "ic-canister-client-sender",
  "ic-crypto",
  "ic-crypto-sha",
@@ -8306,6 +8336,7 @@ dependencies = [
  "ic-registry-proto-data-provider",
  "ic-registry-provisional-whitelist",
  "ic-registry-routing-table",
+ "ic-registry-subnet-features",
  "ic-registry-subnet-type",
  "ic-replicated-state",
  "ic-state-layout",
@@ -8515,6 +8546,7 @@ dependencies = [
  "ic-interfaces-p2p",
  "ic-interfaces-registry",
  "ic-interfaces-state-manager",
+ "ic-interfaces-state-manager-mocks",
  "ic-interfaces-transport",
  "ic-logger",
  "ic-metrics",
@@ -8603,6 +8635,7 @@ dependencies = [
  "ic-registry-client-fake",
  "ic-registry-keys",
  "ic-registry-proto-data-provider",
+ "ic-registry-subnet-features",
  "ic-registry-subnet-type",
  "ic-types",
  "serde_cbor",
@@ -8719,6 +8752,7 @@ dependencies = [
  "strum 0.23.0",
  "strum_macros 0.23.1",
  "thiserror",
+ "thousands",
  "url",
 ]
 
@@ -8843,6 +8877,7 @@ dependencies = [
  "hyper",
  "hyper-tls",
  "ic-canister-client",
+ "ic-canister-client-sender",
  "ic-config",
  "ic-http-endpoints-metrics",
  "ic-ic00-types",
@@ -8933,6 +8968,7 @@ dependencies = [
  "ic-interfaces-certified-stream-store",
  "ic-interfaces-registry",
  "ic-interfaces-state-manager",
+ "ic-interfaces-state-manager-mocks",
  "ic-logger",
  "ic-metrics",
  "ic-protobuf",
@@ -9011,6 +9047,7 @@ dependencies = [
  "ic-base-types",
  "ic-canister-client-sender",
  "ic-crypto-sha",
+ "ic-icrc1",
  "ic-ledger-canister-core",
  "ic-ledger-core",
  "ic-test-utilities-compare-dirs",
@@ -9535,9 +9572,12 @@ dependencies = [
  "dfn_protobuf",
  "ic-base-types",
  "ic-constants",
+ "ic-icrc1-ledger-sm-tests",
  "ic-ledger-canister-core",
  "ic-ledger-core",
  "ic-metrics-encoder",
+ "ic-state-machine-tests",
+ "ic-test-utilities-load-wasm",
  "icp-ledger",
  "intmap",
  "lazy_static",
@@ -9831,15 +9871,6 @@ dependencies = [
  "ic-nns-constants",
  "ic-nns-test-utils",
  "wabt",
-]
-
-[[package]]
-name = "link-cplusplus"
-version = "1.0.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9272ab7b96c9046fbc5bc56c06c117cb639fe2d509df0c421cad82d2915cf369"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -12193,9 +12224,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.6.0"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c4eb3267174b8c6c2f654116623910a0fef09c4753f8dd83db29c48a0df988b"
+checksum = "e076559ef8e241f2ae3479e36f97bd5741c0330689e217ad51ce2c76808b868a"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -12698,12 +12729,6 @@ name = "scopeguard"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
-
-[[package]]
-name = "scratch"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c8132065adcfd6e02db789d9285a0deb2f3fcb04002865ab67d5fb103533898"
 
 [[package]]
 name = "sct"
@@ -13840,9 +13865,11 @@ dependencies = [
  "hyper-tls",
  "ic-agent",
  "ic-artifact-pool",
+ "ic-backup",
  "ic-base-types",
  "ic-btc-types",
  "ic-canister-client",
+ "ic-canister-client-sender",
  "ic-cdk",
  "ic-certification",
  "ic-ckbtc-agent",
@@ -13977,6 +14004,12 @@ dependencies = [
  "quote 1.0.21",
  "syn 1.0.103",
 ]
+
+[[package]]
+name = "thousands"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3bf63baf9f5039dadc247375c29eb13706706cfde997d0330d05aa63a77d8820"
 
 [[package]]
 name = "thread-id"
@@ -14802,6 +14835,33 @@ name = "vec_map"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
+
+[[package]]
+name = "vector_config_generator"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 3.2.23",
+ "crossbeam",
+ "crossbeam-channel",
+ "futures-util",
+ "humantime 2.1.0",
+ "ic-async-utils",
+ "ic-config",
+ "ic-http-endpoints-metrics",
+ "ic-metrics",
+ "ic-types",
+ "ic-utils 0.8.0",
+ "regex",
+ "serde",
+ "serde_json",
+ "service-discovery",
+ "slog",
+ "slog-async",
+ "slog-term",
+ "tokio",
+ "url",
+]
 
 [[package]]
 name = "version_check"

@@ -124,10 +124,7 @@ impl CyclesAccountManager {
     fn scale_cost(&self, cycles: Cycles, subnet_size: usize) -> Cycles {
         match self.use_cost_scaling_flag {
             false => cycles,
-            true => Cycles::from(
-                (cycles.get() * (subnet_size as u128))
-                    / (self.config.reference_subnet_size as u128),
-            ),
+            true => (cycles * subnet_size) / self.config.reference_subnet_size,
         }
     }
 
@@ -147,17 +144,9 @@ impl CyclesAccountManager {
         self.scale_cost(self.config.ingress_message_reception_fee, subnet_size)
     }
 
-    /// Returns the fee for storing a GiB of data per second.
+    /// Returns the fee for storing a GiB of data per second scaled by subnet size.
     pub fn gib_storage_per_second_fee(&self, subnet_size: usize) -> Cycles {
-        let fee = self
-            .config
-            .gib_storage_per_second_fee(self.use_cost_scaling_flag, subnet_size);
-        // No scaling below non-subsidised storage cost threshold.
-        if subnet_size < CyclesAccountManagerConfig::fair_storage_cost_subnet_size() {
-            fee
-        } else {
-            self.scale_cost(fee, subnet_size)
-        }
+        self.scale_cost(self.config.gib_storage_per_second_fee, subnet_size)
     }
 
     /// Returns the fee per byte of ingress message received in [`Cycles`].
@@ -534,19 +523,11 @@ impl CyclesAccountManager {
         let one_gib = 1024 * 1024 * 1024;
         let cycles = Cycles::from(
             (bytes.get() as u128
-                * self
-                    .config
-                    .gib_storage_per_second_fee(self.use_cost_scaling_flag, subnet_size)
-                    .get()
+                * self.config.gib_storage_per_second_fee.get()
                 * duration.as_secs() as u128)
                 / one_gib,
         );
-        // No scaling below non-subsidised storage cost threshold.
-        if subnet_size < CyclesAccountManagerConfig::fair_storage_cost_subnet_size() {
-            cycles
-        } else {
-            self.scale_cost(cycles, subnet_size)
-        }
+        self.scale_cost(cycles, subnet_size)
     }
 
     ////////////////////////////////////////////////////////////////////////////
@@ -935,5 +916,11 @@ mod tests {
         assert_eq!(cam.scale_cost(cost, 6), Cycles::new(6_000));
         assert_eq!(cam.scale_cost(cost, 13), Cycles::new(13_000));
         assert_eq!(cam.scale_cost(cost, 26), Cycles::new(26_000));
+
+        // Check overflow case.
+        assert_eq!(
+            cam.scale_cost(Cycles::new(std::u128::MAX), 1_000_000),
+            Cycles::new(std::u128::MAX) / reference_subnet_size
+        );
     }
 }

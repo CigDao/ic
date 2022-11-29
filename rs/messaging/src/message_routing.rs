@@ -68,6 +68,7 @@ const PHASE_COMMIT: &str = "commit";
 
 const METRIC_PROCESS_BATCH_DURATION: &str = "mr_process_batch_duration_seconds";
 const METRIC_PROCESS_BATCH_PHASE_DURATION: &str = "mr_process_batch_phase_duration_seconds";
+const METRIC_TIMED_OUT_REQUESTS_TOTAL: &str = "mr_timed_out_requests_total";
 
 const CRITICAL_ERROR_MISSING_SUBNET_SIZE: &str = "cycles_account_manager_missing_subnet_size_error";
 const CRITICAL_ERROR_NO_CANISTER_ALLOCATION_RANGE: &str = "mr_empty_canister_allocation_range";
@@ -246,6 +247,8 @@ pub(crate) struct MessageRoutingMetrics {
     /// Critical error: subnet has no canister allocation range to generate new
     /// canister IDs from.
     critical_error_no_canister_allocation_range: IntCounter,
+    /// Number of timed out requests.
+    pub timed_out_requests_total: IntCounter,
 }
 
 impl MessageRoutingMetrics {
@@ -289,6 +292,10 @@ impl MessageRoutingMetrics {
                 .error_counter(CRITICAL_ERROR_MISSING_SUBNET_SIZE),
             critical_error_no_canister_allocation_range: metrics_registry
                 .error_counter(CRITICAL_ERROR_NO_CANISTER_ALLOCATION_RANGE),
+            timed_out_requests_total: metrics_registry.int_counter(
+                METRIC_TIMED_OUT_REQUESTS_TOTAL,
+                "Count of timed out requests.",
+            ),
         }
     }
 
@@ -1038,9 +1045,9 @@ impl MessageRouting for MessageRoutingImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ic_interfaces_state_manager_mocks::MockStateManager;
     use ic_test_utilities::{
         notification::{Notification, WaitResult},
-        state_manager::MockStateManager,
         types::batch::BatchBuilder,
     };
     use ic_test_utilities_logger::with_test_replica_logger;

@@ -5,14 +5,13 @@ Build
 -----
 
 ```bash
-# Build the Wasm binary from `ic/rs`
-cargo build --target wasm32-unknown-unknown --release --bin ecdsa-canister
+# Build the Wasm binary
+bazel build //rs/rust_canisters/ecdsa:ecdsa-canister
 
-# Optional: install ic-cdk-optimizer
-cargo install ic-cdk-optimizer
-
-# Reduce the Wasm binary size
-ic-cdk-optimizer target/wasm32-unknown-unknown/release/ecdsa-canister.wasm --output ecdsa-canister.wasm
+# Find the optimized canister binary from the root `ic` directory:
+ls -l bazel-bin/rs/rust_canisters/ecdsa/ecdsa-canister.wasm
+# From other directories:
+ls -l $(bazel info bazel-bin)/rs/rust_canisters/ecdsa/ecdsa-canister.wasm
 ```
 
 Run

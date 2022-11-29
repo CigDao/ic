@@ -109,6 +109,9 @@ pub struct SystemState {
 
     /// Canister global timer.
     pub global_timer: CanisterTimer,
+
+    /// Canister version.
+    pub canister_version: u64,
 }
 
 /// A wrapper around the different canister statuses.
@@ -412,6 +415,7 @@ impl SystemState {
             canister_metrics: CanisterMetrics::default(),
             task_queue: Default::default(),
             global_timer: CanisterTimer::Inactive,
+            canister_version: 0,
         }
     }
 
@@ -445,6 +449,7 @@ impl SystemState {
         cycles_debit: Cycles,
         task_queue: VecDeque<ExecutionTask>,
         global_timer: CanisterTimer,
+        canister_version: u64,
     ) -> Self {
         Self {
             controllers,
@@ -459,6 +464,7 @@ impl SystemState {
             cycles_debit,
             task_queue,
             global_timer,
+            canister_version,
         }
     }
 
@@ -883,7 +889,8 @@ impl SystemState {
         self.queues.has_expired_deadlines(current_time)
     }
 
-    /// Times out requests in the `OutputQueues` of `self.queues`.
+    /// Times out requests in the `OutputQueues` of `self.queues`. Returns the number of requests
+    /// that were timed out.
     ///
     /// See `CanisterQueues::time_out_requests` for further details.
     pub fn time_out_requests(
@@ -891,9 +898,9 @@ impl SystemState {
         current_time: Time,
         own_canister_id: &CanisterId,
         local_canisters: &BTreeMap<CanisterId, CanisterState>,
-    ) {
+    ) -> u64 {
         self.queues
-            .time_out_requests(current_time, own_canister_id, local_canisters);
+            .time_out_requests(current_time, own_canister_id, local_canisters)
     }
 }
 

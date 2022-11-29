@@ -1,6 +1,7 @@
 use crate::ckbtc::minter::utils::{
     ensure_wallet, generate_blocks, get_btc_address, get_btc_client, send_to_btc_address,
-    wait_for_mempool_change, wait_for_update_balance, BTC_MIN_CONFIRMATIONS,
+    wait_for_finalization, wait_for_mempool_change, wait_for_signed_tx, wait_for_update_balance,
+    BTC_MIN_CONFIRMATIONS,
 };
 use crate::{
     ckbtc::lib::{
@@ -13,10 +14,14 @@ use crate::{
     },
     util::{assert_create_agent, block_on, runtime_from_url, UniversalCanister},
 };
-use bitcoincore_rpc::RpcApi;
+use bitcoincore_rpc::{
+    bitcoin::{hashes::Hash, Txid},
+    RpcApi,
+};
 use candid::{Nat, Principal};
 use ic_base_types::PrincipalId;
 use ic_ckbtc_agent::CkBtcMinterAgent;
+use ic_ckbtc_minter::state::RetrieveBtcStatus;
 use ic_ckbtc_minter::updates::get_withdrawal_account::compute_subaccount;
 use ic_ckbtc_minter::updates::retrieve_btc::RetrieveBtcArgs;
 use ic_icrc1::endpoints::TransferArg;
@@ -95,7 +100,9 @@ pub fn test_heartbeat(env: TestEnv) {
             .expect("Error while calling get_withdrawal_account")
             .account;
 
-        let transfer_amount = 50_000_000;
+        const TRANSFER_FEE: u64 = 1_000;
+
+        let transfer_amount = 99_997_180_u64 - TRANSFER_FEE;
 
         let transfer_result = ledger_agent
             .transfer(TransferArg {
@@ -117,8 +124,9 @@ pub fn test_heartbeat(env: TestEnv) {
         let destination_btc_address = btc_rpc.get_new_address(None, None).unwrap();
 
         info!(&logger, "Call retrieve_btc");
-        let retrieve_amount = 10_000_000;
-        minter_agent
+
+        let retrieve_amount = 99_997_180_u64 - TRANSFER_FEE;
+        let retrieve_response = minter_agent
             .retrieve_btc(RetrieveBtcArgs {
                 amount: retrieve_amount,
                 address: destination_btc_address.to_string(),
@@ -127,8 +135,67 @@ pub fn test_heartbeat(env: TestEnv) {
             .expect("Error while calling retrieve_btc")
             .expect("Error in retrieve_btc");
 
+        let retrieve_status = minter_agent
+            .retrieve_btc_status(retrieve_response.block_index)
+            .await
+            .expect("failed to call retrieve_btc_status");
+
+        assert!(
+            matches!(
+                retrieve_status,
+                RetrieveBtcStatus::Pending
+                    | RetrieveBtcStatus::Signing
+                    | RetrieveBtcStatus::Sending { .. }
+                    | RetrieveBtcStatus::Submitted { .. }
+            ),
+            "Expected status Submitted or Pending, got {:?}",
+            retrieve_status,
+        );
+
+        // Wait for tx to be signed
+        let txid = wait_for_signed_tx(&minter_agent, &logger, retrieve_response.block_index).await;
+
         // We wait for the heartbeat to send the transaction to the mempool
         info!(&logger, "Waiting for tx to appear in mempool");
-        wait_for_mempool_change(&btc_rpc, &logger).await;
+        let mempool_txids = wait_for_mempool_change(&btc_rpc, &logger).await;
+
+        let btc_txid = Txid::from_hash(Hash::from_slice(&txid).unwrap());
+        // Check if we have the txid in the bitcoind mempool
+        assert!(
+            mempool_txids.contains(&btc_txid),
+            "The mempool does not contain the expected txid: {}, mempool contents: {:?}",
+            btc_txid,
+            mempool_txids
+        );
+
+        // We are expecting only one transaction in mempool.
+        assert_eq!(mempool_txids.len(), 1);
+
+        let get_tx_infos = btc_rpc
+            .get_mempool_entry(&mempool_txids[0])
+            .expect("failed to get tx infos");
+
+        // Check that we have the expected fee
+        // We expect this fee because :
+        // - the transaction len should be 141 vbytes
+        // - a fee of 5 satoshis/vbytes
+        // Hence a total fee of 705 satoshis
+        const EXPECTED_FEE: u64 = 705;
+        assert_eq!(get_tx_infos.fees.base.as_sat(), EXPECTED_FEE);
+
+        // Check that we can modify the fee
+        assert!(get_tx_infos.bip125_replaceable);
+
+        // Generate more blocks and wait for the minter to finalize the retrieval.
+        generate_blocks(
+            &btc_rpc,
+            &logger,
+            BTC_MIN_CONFIRMATIONS,
+            &default_btc_address,
+        );
+
+        let finalized_txid =
+            wait_for_finalization(&minter_agent, &logger, retrieve_response.block_index).await;
+        assert_eq!(txid, finalized_txid);
     })
 }

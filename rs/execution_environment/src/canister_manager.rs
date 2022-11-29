@@ -519,6 +519,8 @@ impl CanisterManager {
                 .increment(old_mem - new_mem, NumBytes::from(0));
         }
 
+        canister.system_state.canister_version += 1;
+
         Ok(())
     }
 
@@ -578,6 +580,7 @@ impl CanisterManager {
                     max_number_of_canisters,
                     state,
                     round_limits,
+                    None,
                 ) {
                     Ok(canister_id) => canister_id,
                     Err(err) => return (Err(err), cycles),
@@ -1007,35 +1010,10 @@ impl CanisterManager {
 
         self.validate_canister_is_stopped(canister_to_delete)?;
 
-        // Once a canister is stopped, it stops accepting new messages, so this should
-        // never happen.
-        if canister_to_delete.has_input() {
-            fatal!(
-                self.log,
-                "[EXC-BUG] Trying to delete canister {} while having messages in its input queue.",
-                canister_to_delete.canister_id()
-            );
-        }
-
-        // This scenario should be impossible because:
-        //
-        // 1) A stopped canister does not accept new messages.
-        //
-        // 2) A canister is transitioned to a stopped state at the end of a round.
-        //
-        // 3) All output messages are cleared by the `StreamBuilder` at the end of
-        //    every round.
-        //
-        // Because the canister is already stopped, it must have been stopped in a
-        // previous round (2), had its output queued emptied in a previous round (3),
-        // and the output queue is still empty because it didn't accept any new
-        // messages (1).
-        if canister_to_delete.has_output() {
-            fatal!(
-                self.log,
-                "[EXC-BUG] Trying to delete canister {} while having messages in its output queue.",
-                canister_to_delete.canister_id()
-            );
+        if canister_to_delete.has_input() || canister_to_delete.has_output() {
+            return Err(CanisterManagerError::DeleteCanisterQueueNotEmpty(
+                canister_id_to_delete,
+            ));
         }
 
         // When a canister is deleted:
@@ -1074,6 +1052,7 @@ impl CanisterManager {
         sender: PrincipalId,
         cycles_amount: Option<u128>,
         settings: CanisterSettings,
+        specified_id: Option<PrincipalId>,
         state: &mut ReplicatedState,
         provisional_whitelist: &ProvisionalWhitelist,
         max_number_of_canisters: u64,
@@ -1104,7 +1083,42 @@ impl CanisterManager {
                 max_number_of_canisters,
                 state,
                 round_limits,
+                specified_id,
             ),
+        }
+    }
+
+    /// Validates specified ID is available for use.
+    ///
+    /// It must be used in in the context of provisional create canister flow when a specified ID is provided.
+    ///
+    /// Returns `Err` iff the `specified_id` is not valid.
+    fn validate_specified_id(
+        &self,
+        state: &mut ReplicatedState,
+        specified_id: PrincipalId,
+    ) -> Result<CanisterId, CanisterManagerError> {
+        let new_canister_id = CanisterId::new(specified_id).unwrap();
+
+        if state.canister_states.get(&new_canister_id).is_some() {
+            return Err(CanisterManagerError::CanisterAlreadyExists(new_canister_id));
+        }
+
+        if state
+            .metadata
+            .network_topology
+            .routing_table
+            .route(specified_id)
+            == Some(state.metadata.own_subnet_id)
+        {
+            Ok(new_canister_id)
+        } else {
+            Err(CanisterManagerError::CanisterNotHostedBySubnet {
+                message: format!(
+                    "Specified CanisterId {} is not hosted by subnet {}.",
+                    specified_id, state.metadata.own_subnet_id
+                ),
+            })
         }
     }
 
@@ -1117,6 +1131,7 @@ impl CanisterManager {
         max_number_of_canisters: u64,
         state: &mut ReplicatedState,
         round_limits: &mut RoundLimits,
+        specified_id: Option<PrincipalId>,
     ) -> Result<CanisterId, CanisterManagerError> {
         // A value of 0 is equivalent to setting no limit.
         // See documentation of `SubnetRecord` for the semantics of `max_number_of_canisters`.
@@ -1127,7 +1142,11 @@ impl CanisterManager {
             });
         }
 
-        let new_canister_id = self.generate_new_canister_id(state)?;
+        let new_canister_id = match specified_id {
+            Some(spec_id) => self.validate_specified_id(state, spec_id)?,
+
+            None => self.generate_new_canister_id(state)?,
+        };
 
         // Take the fee out of the cycles that are going to be added as the canister's
         // initial balance.
@@ -1271,6 +1290,7 @@ pub(crate) enum CanisterManagerError {
     Hypervisor(CanisterId, HypervisorError),
     DeleteCanisterNotStopped(CanisterId),
     DeleteCanisterSelf(CanisterId),
+    DeleteCanisterQueueNotEmpty(CanisterId),
     SenderNotInWhitelist(PrincipalId),
     NotEnoughMemoryAllocationGiven {
         canister_id: CanisterId,
@@ -1291,6 +1311,9 @@ pub(crate) enum CanisterManagerError {
     MaxNumberOfCanistersReached {
         subnet_id: SubnetId,
         max_number_of_canisters: u64,
+    },
+    CanisterNotHostedBySubnet {
+        message: String,
     },
 }
 
@@ -1357,6 +1380,16 @@ impl From<CanisterManagerError> for UserError {
                     ErrorCode::CanisterNotStopped,
                     format!(
                         "Canister {} must be stopped before it is deleted.",
+                        canister_id,
+                    )
+                )
+            }
+            DeleteCanisterQueueNotEmpty(canister_id) => {
+                Self::new(
+                    ErrorCode::CanisterQueueNotEmpty,
+                    format!(
+                        "Canister {} has messages in its queues and cannot be \
+                        deleted now. Please retry after some time",
                         canister_id,
                     )
                 )
@@ -1432,6 +1465,12 @@ impl From<CanisterManagerError> for UserError {
                     format!("Subnet {} has reached the allowed canister limit of {} canisters. Retry creating the canister.", subnet_id, max_number_of_canisters),
                 )
             }
+            CanisterNotHostedBySubnet {message} => {
+                Self::new(
+                    ErrorCode::CanisterNotHostedBySubnet,
+                    format!("Unsuccessful validation of specified ID: {}", message),
+                )
+            }
         }
     }
 }
@@ -1468,6 +1507,8 @@ pub fn uninstall_canister(
 
     // Deactivate global timer.
     canister.system_state.global_timer = CanisterTimer::Inactive;
+    // Increment canister version.
+    canister.system_state.canister_version += 1;
 
     let mut rejects = Vec::new();
     let canister_id = canister.canister_id();

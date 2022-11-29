@@ -12,6 +12,8 @@ use ic_ic00_types::{
     Payload as Ic00Payload, ProvisionalCreateCanisterWithCyclesArgs, ProvisionalTopUpCanisterArgs,
     TransformContext, TransformFunc, IC_00,
 };
+use ic_registry_routing_table::canister_id_into_u64;
+use ic_registry_routing_table::CanisterIdRange;
 use ic_registry_subnet_type::SubnetType;
 use ic_replicated_state::{
     canister_state::{DEFAULT_QUEUE_CAPACITY, WASM_PAGE_SIZE_IN_BYTES},
@@ -27,7 +29,7 @@ use ic_types::{
     messages::{
         CallbackId, Payload, RejectContext, RequestOrResponse, Response, MAX_RESPONSE_COUNT_BYTES,
     },
-    CanisterId, Cycles, RegistryVersion,
+    CanisterId, Cycles, PrincipalId, RegistryVersion,
 };
 use ic_types_test_utils::ids::{canister_test_id, node_test_id, subnet_test_id, user_test_id};
 use ic_universal_canister::{call_args, wasm};
@@ -38,6 +40,7 @@ mod compilation;
 mod orthogonal_persistence;
 
 const BALANCE_EPSILON: Cycles = Cycles::new(10_000_000);
+const ONE_GIB: i64 = 1 << 30;
 
 // A Wasm module calling call_simple
 const CALL_SIMPLE_WAT: &str = r#"(module
@@ -260,14 +263,14 @@ fn output_requests_on_application_subnets_respect_subnet_total_memory() {
     let min_canister_memory = 65793;
     let mut test = ExecutionTestBuilder::new()
         .with_subnet_total_memory(min_canister_memory + 13)
-        .with_subnet_message_memory(1 << 30)
+        .with_subnet_message_memory(ONE_GIB)
         .with_manual_execution()
         .build();
     let canister_id = test.canister_from_wat(CALL_SIMPLE_WAT).unwrap();
     test.ingress_raw(canister_id, "test", vec![]);
     test.execute_message(canister_id);
     assert_eq!(13, test.subnet_available_memory().get_total_memory());
-    assert_eq!(1 << 30, test.subnet_available_memory().get_message_memory());
+    assert_eq!(ONE_GIB, test.subnet_available_memory().get_message_memory());
     let system_state = &test.canister_state(canister_id).system_state;
     assert!(!system_state.queues().has_output());
 }
@@ -275,7 +278,7 @@ fn output_requests_on_application_subnets_respect_subnet_total_memory() {
 #[test]
 fn output_requests_on_application_subnets_respect_subnet_message_memory() {
     let mut test = ExecutionTestBuilder::new()
-        .with_subnet_total_memory(1 << 30)
+        .with_subnet_total_memory(ONE_GIB)
         .with_subnet_message_memory(13)
         .with_manual_execution()
         .build();
@@ -283,7 +286,7 @@ fn output_requests_on_application_subnets_respect_subnet_message_memory() {
     let available_memory_after_create = test.subnet_available_memory().get_total_memory();
     assert_eq!(
         available_memory_after_create,
-        (1 << 30) - test.state().total_memory_taken().get() as i64
+        ONE_GIB - test.state().total_and_message_memory_taken().0.get() as i64
     );
     test.ingress_raw(canister_id, "test", vec![]);
     test.execute_message(canister_id);
@@ -299,15 +302,15 @@ fn output_requests_on_application_subnets_respect_subnet_message_memory() {
 #[test]
 fn output_requests_on_application_subnets_update_subnet_available_memory() {
     let mut test = ExecutionTestBuilder::new()
-        .with_subnet_total_memory(1 << 30)
-        .with_subnet_message_memory(1 << 30)
+        .with_subnet_total_memory(ONE_GIB)
+        .with_subnet_message_memory(ONE_GIB)
         .with_manual_execution()
         .build();
     let canister_id = test.canister_from_wat(CALL_SIMPLE_WAT).unwrap();
     let available_memory_after_create = test.subnet_available_memory().get_total_memory();
     assert_eq!(
         available_memory_after_create,
-        (1 << 30) - test.state().total_memory_taken().get() as i64
+        ONE_GIB - test.state().total_and_message_memory_taken().0.get() as i64
     );
     test.ingress_raw(canister_id, "test", vec![]);
     test.execute_message(canister_id);
@@ -322,7 +325,7 @@ fn output_requests_on_application_subnets_update_subnet_available_memory() {
         subnet_total_memory
     );
     assert_eq!(
-        (1 << 30) - MAX_RESPONSE_COUNT_BYTES as i64,
+        ONE_GIB - MAX_RESPONSE_COUNT_BYTES as i64,
         subnet_message_memory
     );
     assert_correct_request(system_state, canister_id);
@@ -710,7 +713,7 @@ fn get_canister_status_from_another_canister_when_memory_low() {
     let result = test.ingress(controller, "update", get_canister_status);
     let reply = get_reply(result);
     let csr = CanisterStatusResultV2::decode(&reply).unwrap();
-    let one_gib: u128 = 1 << 30;
+    let one_gib: u128 = ONE_GIB as u128;
     let seconds_per_day = 24 * 3600;
     assert_eq!(
         csr.idle_cycles_burned_per_day(),
@@ -1368,33 +1371,33 @@ const MEMORY_ALLOCATION_WAT: &str = r#"(module
 #[test]
 fn subnet_available_memory_reclaimed_when_execution_fails() {
     let mut test = ExecutionTestBuilder::new()
-        .with_subnet_total_memory(1 << 30)
-        .with_subnet_message_memory(1 << 30)
+        .with_subnet_total_memory(ONE_GIB)
+        .with_subnet_message_memory(ONE_GIB)
         .build();
     let id = test.canister_from_wat(MEMORY_ALLOCATION_WAT).unwrap();
-    let memory_after_create = test.state().total_memory_taken().get() as i64;
+    let memory_after_create = test.state().total_and_message_memory_taken().0.get() as i64;
     assert_eq!(
         test.subnet_available_memory().get_total_memory(),
-        (1 << 30) - memory_after_create
+        ONE_GIB - memory_after_create
     );
     let err = test.ingress(id, "test_with_trap", vec![]).unwrap_err();
     assert_eq!(ErrorCode::CanisterCalledTrap, err.code());
     let memory = test.subnet_available_memory();
-    assert_eq!((1 << 30) - memory_after_create, memory.get_total_memory());
-    assert_eq!(1 << 30, memory.get_message_memory());
+    assert_eq!(ONE_GIB - memory_after_create, memory.get_total_memory());
+    assert_eq!(ONE_GIB, memory.get_message_memory());
 }
 
 #[test]
 fn test_allocating_memory_reduces_subnet_available_memory() {
     let mut test = ExecutionTestBuilder::new()
-        .with_subnet_total_memory(1 << 30)
-        .with_subnet_message_memory(1 << 30)
+        .with_subnet_total_memory(ONE_GIB)
+        .with_subnet_message_memory(ONE_GIB)
         .build();
     let id = test.canister_from_wat(MEMORY_ALLOCATION_WAT).unwrap();
-    let memory_after_create = test.state().total_memory_taken().get() as i64;
+    let memory_after_create = test.state().total_and_message_memory_taken().0.get() as i64;
     assert_eq!(
         test.subnet_available_memory().get_total_memory(),
-        (1 << 30) - memory_after_create
+        ONE_GIB - memory_after_create
     );
     let result = test.ingress(id, "test_without_trap", vec![]);
     assert_empty_reply(result);
@@ -1402,10 +1405,10 @@ fn test_allocating_memory_reduces_subnet_available_memory() {
     let new_memory_allocated = 20 * WASM_PAGE_SIZE_IN_BYTES as i64;
     let memory = test.subnet_available_memory();
     assert_eq!(
-        1 << 30,
+        ONE_GIB,
         memory.get_total_memory() + new_memory_allocated + memory_after_create
     );
-    assert_eq!(1 << 30, memory.get_message_memory());
+    assert_eq!(ONE_GIB, memory.get_message_memory());
 }
 
 #[test]
@@ -1713,7 +1716,7 @@ fn ecdsa_signature_rejected_without_fee() {
     let result = test.ingress(canister_id, "update", run).unwrap();
     assert_eq!(
         WasmResult::Reject(
-            "sign_with_ecdsa request sent with 1999999 cycles, but 2000000 cycles are required."
+            "sign_with_ecdsa request sent with 1_999_999 cycles, but 2_000_000 cycles are required."
                 .into()
         ),
         result
@@ -1929,7 +1932,7 @@ fn can_refund_cycles_after_successful_provisional_create_canister() {
         .build();
     let canister = test.universal_canister().unwrap();
     let payment = 10_000_000_000;
-    let args = Encode!(&ProvisionalCreateCanisterWithCyclesArgs::new(None)).unwrap();
+    let args = Encode!(&ProvisionalCreateCanisterWithCyclesArgs::new(None, None)).unwrap();
     let create_canister = wasm()
         .call_with_cycles(
             ic00::IC_00,
@@ -1957,6 +1960,113 @@ fn can_refund_cycles_after_successful_provisional_create_canister() {
         initial_cycles_balance,
         test.canister_state(canister).system_state.balance(),
         BALANCE_EPSILON,
+    );
+}
+
+fn create_canister_with_specified_id(
+    test: &mut ExecutionTest,
+    canister: &CanisterId,
+    specified_id: Option<PrincipalId>,
+) -> CanisterIdRecord {
+    let args = Encode!(&ProvisionalCreateCanisterWithCyclesArgs::new(
+        None,
+        specified_id
+    ))
+    .unwrap();
+
+    let create_canister = wasm()
+        .call_with_cycles(
+            ic00::IC_00,
+            Method::ProvisionalCreateCanisterWithCycles,
+            call_args().other_side(args),
+            (0, 10_000_000_000),
+        )
+        .build();
+
+    let result = test.ingress(*canister, "update", create_canister).unwrap();
+    match result {
+        WasmResult::Reply(bytes) => Decode!(&bytes, CanisterIdRecord).unwrap(),
+        WasmResult::Reject(err) => panic!(
+            "Expected ProvisionalCreateCanisterWithCycles to succeed but got {}",
+            err
+        ),
+    }
+}
+
+#[test]
+fn can_create_canister_with_specified_id() {
+    let mut test = ExecutionTestBuilder::new()
+        .with_provisional_whitelist_all()
+        .build_with_routing_table_for_specified_ids();
+
+    let canister = test.universal_canister().unwrap();
+
+    let range = CanisterIdRange {
+        start: CanisterId::from(0),
+        end: CanisterId::from(u64::MAX / 2),
+    };
+
+    let specified_id = range.end;
+
+    let new_canister =
+        create_canister_with_specified_id(&mut test, &canister, Some(specified_id.get()));
+
+    assert_eq!(specified_id, new_canister.get_canister_id());
+}
+
+// Returns CanisterId by formula 'range_start + (range_end - range_start) * percentile'
+fn get_canister_id_as_percentile_of_range(
+    range_start: CanisterId,
+    range_end: CanisterId,
+    percentile: &f64,
+) -> CanisterId {
+    let start_u64 = canister_id_into_u64(range_start);
+    let end_u64 = canister_id_into_u64(range_end);
+    let shift = ((end_u64 - start_u64) as f64 * percentile) as u64;
+    (start_u64 + shift).into()
+}
+
+fn inc(canister_id: CanisterId) -> CanisterId {
+    (canister_id_into_u64(canister_id) + 1).into()
+}
+
+#[test]
+fn create_multiple_canisters_with_specified_id() {
+    let mut test = ExecutionTestBuilder::new()
+        .with_provisional_whitelist_all()
+        .build_with_routing_table_for_specified_ids();
+
+    let canister = test.universal_canister().unwrap();
+
+    // At the start create the canister without a specified ID.
+    let first_canister_without_specified_id =
+        create_canister_with_specified_id(&mut test, &canister, None);
+
+    let range = CanisterIdRange {
+        start: CanisterId::from(0),
+        end: CanisterId::from(u64::MAX / 2),
+    };
+
+    // Percentiles of the range [start, end] that will be used to get their
+    // respective CanisterIds for the creation of canisters with specified Ids.
+    let percentiles = vec![0.0, 0.1, 0.3, 0.5, 0.6, 0.9];
+
+    for percentile in percentiles.iter() {
+        let specified_id =
+            get_canister_id_as_percentile_of_range(range.start, range.end, percentile);
+        let new_canister =
+            create_canister_with_specified_id(&mut test, &canister, Some(specified_id.get()));
+        assert_eq!(specified_id, new_canister.get_canister_id());
+    }
+
+    // Create the second canister without a specified ID, and
+    // check if the first and second have consecutive Canister IDs.
+    let second_canister_without_specified_id =
+        create_canister_with_specified_id(&mut test, &canister, None);
+
+    assert_eq!(
+        inc(first_canister_without_specified_id.get_canister_id()),
+        second_canister_without_specified_id.get_canister_id()
     );
 }
 

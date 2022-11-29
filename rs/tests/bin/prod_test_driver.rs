@@ -8,8 +8,7 @@ use ic_tests::{
     api_test, basic_health_test, boundary_nodes_integration, boundary_nodes_snp_tests,
     btc_integration, canister_http, ckbtc, consensus, driver::driver_setup::initialize_env,
     execution, icrc1_agent_test, ledger_tests, message_routing, networking, nns_tests,
-    orchestrator, rosetta_test, spec_compliance, tecdsa, wasm_generator_test,
-    workload_counter_canister_test,
+    orchestrator, rosetta_test, tecdsa, wasm_generator_test, workload_counter_canister_test,
 };
 use ic_tests::{
     driver::{
@@ -567,6 +566,14 @@ fn get_test_suites() -> HashMap<String, Suite> {
                 )]),
             ),
             pot_with_setup(
+                "rotate_ecdsa_idkg_key_pot",
+                orchestrator::rotate_ecdsa_idkg_key::setup,
+                par(vec![sys_t(
+                    "rotate_ecdsa_idkg_key_test",
+                    orchestrator::rotate_ecdsa_idkg_key::test,
+                )]),
+            ).with_alert(ENG_ORCHESTRATOR_CHANNEL),
+            pot_with_setup(
                 "transaction_ledger_correctness_pot",
                 ledger_tests::transaction_ledger_correctness::config,
                 par(vec![sys_t(
@@ -1074,6 +1081,14 @@ fn get_test_suites() -> HashMap<String, Suite> {
                         orchestrator::upgrade_downgrade::upgrade_downgrade_nns_subnet,
                     )]),
                 ),
+                pot_with_setup(
+                    "backup_manager_pot",
+                    orchestrator::backup_manager::config,
+                    par(vec![sys_t(
+                        "backup_manager_test",
+                        orchestrator::backup_manager::test,
+                    )]),
+                ),
             ],
         )
         .with_alert(ENG_ORCHESTRATOR_CHANNEL),
@@ -1094,18 +1109,6 @@ fn get_test_suites() -> HashMap<String, Suite> {
         .with_alert(ENG_FINANCIAL_INTEGRATION)
         .with_alert(TEST_FAILURE_CHANNEL),
     );
-
-    m.add_suite(suite(
-        "spec_compliance",
-        vec![pot_with_setup(
-            "spec_compliance",
-            spec_compliance::config,
-            par(vec![
-                sys_t("with_system_subnet", spec_compliance::test_system_subnet),
-                sys_t("with_app_subnet", spec_compliance::test_app_subnet),
-            ]),
-        )],
-    ));
 
     let network_robustness_loss = networking::network_robustness::loss_config();
     let network_robustness_delay = networking::network_robustness::delay_config();

@@ -6,7 +6,8 @@ use crate::{
     },
     canister_settings::CanisterSettings,
     execution::test_utilities::{
-        get_reply, wasm_compilation_cost, wat_compilation_cost, ExecutionTest, ExecutionTestBuilder,
+        get_reply, get_routing_table_with_specified_ids_allocation_range, wasm_compilation_cost,
+        wat_compilation_cost, ExecutionTest, ExecutionTestBuilder,
     },
     execution_environment::as_round_instructions,
     hypervisor::Hypervisor,
@@ -250,15 +251,22 @@ fn canister_manager_config(
     )
 }
 
-fn initial_state(subnet_id: SubnetId) -> ReplicatedState {
-    let routing_table = Arc::new(
-        RoutingTable::try_from(btreemap! {
-            CanisterIdRange{ start: CanisterId::from(0), end: CanisterId::from(CANISTER_IDS_PER_SUBNET - 1) } => subnet_id,
-        })
-        .unwrap(),
-    );
+fn initial_state(subnet_id: SubnetId, use_specified_ids_routing_table: bool) -> ReplicatedState {
     let mut state = ReplicatedState::new(subnet_id, SubnetType::Application);
-    state.metadata.network_topology.routing_table = routing_table;
+
+    state.metadata.network_topology.routing_table = if use_specified_ids_routing_table {
+        let routing_table =
+            get_routing_table_with_specified_ids_allocation_range(subnet_id).unwrap();
+        Arc::new(routing_table)
+    } else {
+        Arc::new(
+            RoutingTable::try_from(btreemap! {
+                CanisterIdRange{ start: CanisterId::from(0), end: CanisterId::from(CANISTER_IDS_PER_SUBNET - 1) } => subnet_id,
+            })
+            .unwrap(),
+        )
+    };
+
     state.metadata.network_topology.nns_subnet_id = subnet_id;
     state.metadata.init_allocation_ranges_if_empty().unwrap();
     state
@@ -321,7 +329,7 @@ where
     let canister_manager = CanisterManagerBuilder::default()
         .with_subnet_id(subnet_id)
         .build();
-    f(canister_manager, initial_state(subnet_id), subnet_id)
+    f(canister_manager, initial_state(subnet_id, false), subnet_id)
 }
 
 #[test]
@@ -1268,6 +1276,7 @@ fn provisional_create_canister_has_no_creation_fee() {
                 canister_test_id(1).get(),
                 Some(INITIAL_CYCLES.get()),
                 CanisterSettings::default(),
+                None,
                 &mut state,
                 &ProvisionalWhitelist::All,
                 MAX_NUMBER_OF_CANISTERS,
@@ -2324,7 +2333,7 @@ fn create_canister_with_cycles_sender_in_whitelist() {
         .with_cycles_account_manager(cycles_account_manager)
         .build();
 
-    let mut state = initial_state(subnet_id);
+    let mut state = initial_state(subnet_id, false);
     let mut round_limits = RoundLimits {
         instructions: as_round_instructions((*EXECUTION_PARAMETERS).instruction_limits.message()),
         subnet_available_memory: (*MAX_SUBNET_AVAILABLE_MEMORY),
@@ -2336,6 +2345,7 @@ fn create_canister_with_cycles_sender_in_whitelist() {
             sender,
             Some(123),
             CanisterSettings::default(),
+            None,
             &mut state,
             &ProvisionalWhitelist::Set(btreeset! { canister_test_id(1).get() }),
             MAX_NUMBER_OF_CANISTERS,
@@ -2347,6 +2357,63 @@ fn create_canister_with_cycles_sender_in_whitelist() {
 
     // Verify cycles are set as expected.
     assert_eq!(canister.system_state.balance(), Cycles::new(123));
+}
+
+fn create_canister_with_specified_id(
+    specified_id: PrincipalId,
+) -> (Result<CanisterId, CanisterManagerError>, ReplicatedState) {
+    let subnet_id = subnet_test_id(1);
+    let canister_manager = CanisterManagerBuilder::default()
+        .with_subnet_id(subnet_id)
+        .build();
+
+    let mut state = initial_state(subnet_id, true);
+    let mut round_limits = RoundLimits {
+        instructions: as_round_instructions((*EXECUTION_PARAMETERS).instruction_limits.message()),
+        subnet_available_memory: (*MAX_SUBNET_AVAILABLE_MEMORY),
+        compute_allocation_used: state.total_compute_allocation(),
+    };
+
+    let creator = canister_test_id(1).get();
+
+    let creation_result = canister_manager.create_canister_with_cycles(
+        creator,
+        Some(123),
+        CanisterSettings::default(),
+        Some(specified_id),
+        &mut state,
+        &ProvisionalWhitelist::Set(btreeset! { canister_test_id(1).get() }),
+        MAX_NUMBER_OF_CANISTERS,
+        &mut round_limits,
+    );
+
+    (creation_result, state)
+}
+
+#[test]
+fn create_canister_with_valid_specified_id_creator_in_whitelist() {
+    let specified_id = CanisterId::from(u64::MAX / 4).get();
+
+    let (creation_result, mut state) = create_canister_with_specified_id(specified_id);
+
+    let canister_id = creation_result.unwrap();
+
+    let canister = state.take_canister_state(&canister_id).unwrap();
+
+    // Verify canister ID is set as expected.
+    assert_eq!(canister.canister_id().get(), specified_id);
+}
+
+#[test]
+fn create_canister_with_invalid_specified_id_creator_in_whitelist() {
+    let specified_id = CanisterId::from(u64::MAX / 4 * 3).get();
+
+    let creation_result = create_canister_with_specified_id(specified_id).0;
+
+    assert_matches!(
+        creation_result,
+        Err(CanisterManagerError::CanisterNotHostedBySubnet { .. })
+    );
 }
 
 #[test]
@@ -2383,7 +2450,7 @@ fn add_cycles_sender_in_whitelist() {
     let canister = get_running_canister(canister_id);
     let sender = canister_test_id(1).get();
 
-    let mut state = initial_state(subnet_id);
+    let mut state = initial_state(subnet_id, false);
     let initial_cycles = canister.system_state.balance();
     state.put_canister_state(canister);
 
@@ -2764,7 +2831,7 @@ fn failed_upgrade_hooks_consume_instructions() {
             .with_cycles_account_manager(cycles_account_manager)
             .build();
 
-        let mut state = initial_state(subnet_id);
+        let mut state = initial_state(subnet_id, false);
         let mut round_limits = RoundLimits {
             instructions: as_round_instructions(
                 (*EXECUTION_PARAMETERS).instruction_limits.message(),
@@ -2910,7 +2977,7 @@ fn failed_install_hooks_consume_instructions() {
             .with_cycles_account_manager(cycles_account_manager)
             .build();
 
-        let mut state = initial_state(subnet_id);
+        let mut state = initial_state(subnet_id, false);
         let mut round_limits = RoundLimits {
             instructions: as_round_instructions(
                 (*EXECUTION_PARAMETERS).instruction_limits.message(),
@@ -2996,7 +3063,7 @@ fn install_code_respects_instruction_limit() {
         .with_cycles_account_manager(cycles_account_manager)
         .build();
 
-    let mut state = initial_state(subnet_id);
+    let mut state = initial_state(subnet_id, false);
     let mut round_limits = RoundLimits {
         instructions: as_round_instructions((*EXECUTION_PARAMETERS).instruction_limits.message()),
         subnet_available_memory: (*MAX_SUBNET_AVAILABLE_MEMORY),
@@ -3221,14 +3288,19 @@ fn install_code_preserves_system_state_and_scheduler_state() {
     // No heap delta.
     assert_eq!(res.unwrap().heap_delta, NumBytes::from(0));
 
-    // Verify the system state is preserved except for global timer.
+    // Verify the system state is preserved except for global timer and canister version.
     let mut new_state = state
         .canister_state(&canister_id)
         .unwrap()
         .system_state
         .clone();
     assert_eq!(new_state.global_timer, CanisterTimer::Inactive);
+    assert_eq!(
+        new_state.canister_version,
+        original_canister.system_state.canister_version + 1
+    );
     new_state.global_timer = original_canister.system_state.global_timer;
+    new_state.canister_version = original_canister.system_state.canister_version;
     assert_eq!(new_state, original_canister.system_state);
 
     // Verify the scheduler state is preserved.
@@ -3260,14 +3332,20 @@ fn install_code_preserves_system_state_and_scheduler_state() {
 
     // No heap delta.
     assert_eq!(res.unwrap().heap_delta, NumBytes::from(0));
-    // Verify the system state is preserved except for global timer.
+
+    // Verify the system state is preserved except for global timer and canister version.
     let mut new_state = state
         .canister_state(&canister_id)
         .unwrap()
         .system_state
         .clone();
     assert_eq!(new_state.global_timer, CanisterTimer::Inactive);
+    assert_eq!(
+        new_state.canister_version,
+        original_canister.system_state.canister_version + 2
+    );
     new_state.global_timer = original_canister.system_state.global_timer;
+    new_state.canister_version = original_canister.system_state.canister_version;
     assert_eq!(new_state, original_canister.system_state);
 
     // Verify the scheduler state is preserved.
@@ -3298,14 +3376,20 @@ fn install_code_preserves_system_state_and_scheduler_state() {
 
     // No heap delta.
     assert_eq!(res.unwrap().heap_delta, NumBytes::from(0));
-    // Verify the system state is preserved except for global timer.
+
+    // Verify the system state is preserved except for global timer and canister version.
     let mut new_state = state
         .canister_state(&canister_id)
         .unwrap()
         .system_state
         .clone();
     assert_eq!(new_state.global_timer, CanisterTimer::Inactive);
+    assert_eq!(
+        new_state.canister_version,
+        original_canister.system_state.canister_version + 3
+    );
     new_state.global_timer = original_canister.system_state.global_timer;
+    new_state.canister_version = original_canister.system_state.canister_version;
     assert_eq!(new_state, original_canister.system_state);
 
     // Verify the scheduler state is preserved.

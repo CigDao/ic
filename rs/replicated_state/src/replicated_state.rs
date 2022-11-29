@@ -509,49 +509,47 @@ impl ReplicatedState {
             .sum()
     }
 
-    /// Returns the total memory taken by canisters in bytes.
+    /// Returns:
+    ///   * the total memory taken by canisters in bytes
+    ///   * the memory taken by canister messages in bytes
     ///
-    /// This accounts for the canister memory reservation, where specified; and
-    /// the actual canister memory usage, where no explicit memory reservation
-    /// has been made. Canister message memory usage is included for application
-    /// subnets only.
-    pub fn total_memory_taken(&self) -> NumBytes {
-        self.total_memory_taken_impl(self.metadata.own_subnet_type != SubnetType::System)
+    /// Total memory taken accounts for the canister memory reservation, where
+    /// specified; and the actual canister memory usage, where no explicit
+    /// memory reservation has been made. Canister message memory usage is
+    /// included for application subnets only.
+    pub fn total_and_message_memory_taken(&self) -> (NumBytes, NumBytes) {
+        let (raw_total_memory_taken, message_memory_taken) =
+            self.raw_total_and_message_memory_taken();
+        let total_memory_taken = if self.metadata.own_subnet_type != SubnetType::System {
+            raw_total_memory_taken + message_memory_taken
+        } else {
+            raw_total_memory_taken
+        };
+        (total_memory_taken, message_memory_taken)
     }
 
-    /// Returns the total memory taken by canisters in bytes, always including
-    /// canister messages (regardless of subnet type).
-    ///
-    /// This accounts for the canister memory reservation, where specified; and
-    /// the actual canister memory usage, where no explicit memory reservation
-    /// has been made.
-    pub fn total_memory_taken_with_messages(&self) -> NumBytes {
-        self.total_memory_taken_impl(true)
-    }
-
-    /// Common implementation for `total_memory_taken()` and
-    /// `total_memory_taken_with_messages()`.
-    fn total_memory_taken_impl(&self, with_messages: bool) -> NumBytes {
-        let mut memory_taken = self
+    /// Returns:
+    ///   * the raw total memory taken by canisters in bytes, i.e. without
+    ///     including memory taken by canister messages
+    ///   * the memory taken by canister messages in bytes
+    pub fn raw_total_and_message_memory_taken(&self) -> (NumBytes, NumBytes) {
+        let (raw_memory_taken, mut message_memory_taken) = self
             .canisters_iter()
-            .map(|canister| match canister.memory_allocation() {
-                MemoryAllocation::Reserved(bytes) => bytes,
-                MemoryAllocation::BestEffort => canister.memory_usage_impl(with_messages),
+            .map(|canister| {
+                (
+                    match canister.memory_allocation() {
+                        MemoryAllocation::Reserved(bytes) => bytes,
+                        MemoryAllocation::BestEffort => canister.raw_memory_usage(),
+                    },
+                    canister.system_state.memory_usage(),
+                )
             })
-            .sum();
-        if with_messages {
-            memory_taken += (self.subnet_queues.memory_usage() as u64).into();
-        }
-        memory_taken
-    }
+            .reduce(|accum, val| (accum.0 + val.0, accum.1 + val.1))
+            .unwrap_or_default();
 
-    /// Returns the total memory taken by canister messages in bytes.
-    pub fn message_memory_taken(&self) -> NumBytes {
-        NumBytes::new(self.subnet_queues.memory_usage() as u64)
-            + self
-                .canisters_iter()
-                .map(|canister| canister.system_state.memory_usage())
-                .sum()
+        message_memory_taken += (self.subnet_queues.memory_usage() as u64).into();
+
+        (raw_memory_taken, message_memory_taken)
     }
 
     /// Returns the total memory taken by the ingress history in bytes.
@@ -789,11 +787,11 @@ impl ReplicatedState {
     }
 
     /// Times out requests in all `OutputQueues` found in the replicated state (except the subnet
-    /// queues).
+    /// queues). Returns the number of requests that were timed out.
     ///
     /// See `CanisterQueues::time_out_requests` for further details.
     #[allow(clippy::needless_collect)]
-    pub fn time_out_requests(&mut self, current_time: Time) {
+    pub fn time_out_requests(&mut self, current_time: Time) -> u64 {
         // Because the borrow checker requires us to remove each canister before
         // calling `time_out_requests()` on it and replace it afterwards; and removing
         // and replacing every canister on a large subnet is very costly; we first
@@ -810,15 +808,18 @@ impl ReplicatedState {
             .map(|(canister_id, _)| *canister_id)
             .collect::<Vec<_>>();
 
+        let mut timed_out_requests_count = 0;
         for canister_id in canister_ids_with_expired_deadlines {
             let mut canister = self.canister_states.remove(&canister_id).unwrap();
-            canister.system_state.time_out_requests(
+            timed_out_requests_count += canister.system_state.time_out_requests(
                 current_time,
                 &canister_id,
                 &self.canister_states,
             );
             self.canister_states.insert(canister_id, canister);
         }
+
+        timed_out_requests_count
     }
 }
 

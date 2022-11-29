@@ -336,6 +336,9 @@ fn eval(ops_bytes: OpsBytes) {
 
                 api::stable64_write(offset, &data);
             }
+            Ops::CanisterVersion => {
+                stack.push_int64(api::canister_version());
+            }
         }
     }
 }
@@ -347,6 +350,12 @@ fn update() {
 
 #[export_name = "canister_query query"]
 fn query() {
+    setup();
+    eval(&api::arg_data());
+}
+
+#[export_name = "canister_composite_query composite_query"]
+fn composite_query() {
     setup();
     eval(&api::arg_data());
 }

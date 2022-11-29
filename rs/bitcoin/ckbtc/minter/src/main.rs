@@ -1,7 +1,10 @@
 use candid::candid_method;
-use ic_cdk_macros::{heartbeat, init, post_upgrade, pre_upgrade, update};
+use ic_canisters_http_types::{HttpRequest, HttpResponse, HttpResponseBuilder};
+use ic_cdk_macros::{heartbeat, init, post_upgrade, pre_upgrade, query, update};
 use ic_ckbtc_minter::lifecycle::{self, init::InitArgs};
 use ic_ckbtc_minter::metrics::encode_metrics;
+use ic_ckbtc_minter::queries::RetrieveBtcStatusRequest;
+use ic_ckbtc_minter::state::{read_state, RetrieveBtcStatus};
 use ic_ckbtc_minter::updates::retrieve_btc::{RetrieveBtcArgs, RetrieveBtcError, RetrieveBtcOk};
 use ic_ckbtc_minter::updates::{
     self,
@@ -48,6 +51,12 @@ async fn retrieve_btc(args: RetrieveBtcArgs) -> Result<RetrieveBtcOk, RetrieveBt
     updates::retrieve_btc::retrieve_btc(args).await
 }
 
+#[candid_method(query)]
+#[query]
+fn retrieve_btc_status(req: RetrieveBtcStatusRequest) -> RetrieveBtcStatus {
+    read_state(|s| s.retrieve_btc_status(req.block_index))
+}
+
 #[candid_method(update)]
 #[update]
 async fn update_balance(
@@ -56,9 +65,31 @@ async fn update_balance(
     updates::update_balance::update_balance(args).await
 }
 
-#[export_name = "canister_query http_request"]
-fn http_request() {
-    dfn_http_metrics::serve_metrics(encode_metrics);
+#[candid_method(query)]
+#[query]
+fn http_request(req: HttpRequest) -> HttpResponse {
+    if req.path() == "/metrics" {
+        let mut writer =
+            ic_metrics_encoder::MetricsEncoder::new(vec![], ic_cdk::api::time() as i64 / 1_000_000);
+
+        match encode_metrics(&mut writer) {
+            Ok(()) => HttpResponseBuilder::ok()
+                .header("Content-Type", "text/plain; version=0.0.4")
+                .with_body_and_content_length(writer.into_inner())
+                .build(),
+            Err(err) => {
+                HttpResponseBuilder::server_error(format!("Failed to encode metrics: {}", err))
+                    .build()
+            }
+        }
+    } else {
+        HttpResponseBuilder::not_found().build()
+    }
+}
+
+#[query]
+fn __get_candid_interface_tmp_hack() -> &'static str {
+    include_str!(env!("CKBTC_MINTER_DID_PATH"))
 }
 
 fn main() {}

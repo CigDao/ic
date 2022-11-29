@@ -2,8 +2,11 @@
 
 use super::*;
 use ic_crypto_internal_tls::keygen::generate_tls_key_pair_der;
-use ic_crypto_temp_crypto::{NodeKeysToGenerate, TempCryptoComponent};
+use ic_crypto_temp_crypto::TempCryptoBuilder;
+use ic_crypto_temp_crypto::{EcdsaSubnetConfig, NodeKeysToGenerate, TempCryptoComponent};
 use ic_crypto_test_utils_keygen::{add_public_key_to_registry, add_tls_cert_to_registry};
+use ic_interfaces_registry::RegistryClient;
+use ic_interfaces_registry_mocks::MockRegistryClient;
 use ic_registry_client_fake::FakeRegistryClient;
 use ic_registry_proto_data_provider::ProtoRegistryDataProvider;
 use ic_types::crypto::KeyPurpose;
@@ -114,12 +117,12 @@ fn should_count_correctly_inconsistent_numbers_of_tls_certificates() {
 
 mod rotate_idkg_dealing_encryption_keys {
     use super::*;
-    use ic_base_types::{NodeId, PrincipalId};
+    use ic_base_types::{NodeId, PrincipalId, SubnetId};
     use ic_crypto_internal_csp::keygen::utils::idkg_dealing_encryption_pk_to_proto;
     use ic_crypto_internal_threshold_sig_ecdsa::{EccCurveType, MEGaPublicKey};
+    use ic_crypto_temp_crypto::FastForwardCryptoTimeSource;
     use ic_protobuf::registry::crypto::v1::PublicKey;
     use ic_registry_keys::make_crypto_node_key;
-    use ic_test_utilities::FastForwardTimeSource;
 
     const REGISTRY_VERSION_1: RegistryVersion = RegistryVersion::new(1);
     const REGISTRY_VERSION_2: RegistryVersion = RegistryVersion::new(2);
@@ -129,11 +132,13 @@ mod rotate_idkg_dealing_encryption_keys {
     #[test]
     #[should_panic(expected = "missing local IDKG public key")]
     fn should_panic_when_no_idkg_public_key_available_locally() {
-        let crypto_component = TempCryptoComponent::builder()
-            .with_keys(NodeKeysToGenerate::all_except_idkg_dealing_encryption_key())
-            .build();
+        let setup = Setup::new_with_keys_to_generate(
+            NodeKeysToGenerate::all_except_idkg_dealing_encryption_key(),
+        );
 
-        let _ = crypto_component.rotate_idkg_dealing_encryption_keys(REGISTRY_VERSION_1);
+        let _ = setup
+            .crypto
+            .rotate_idkg_dealing_encryption_keys(REGISTRY_VERSION_1);
     }
 
     #[test]
@@ -201,6 +206,133 @@ mod rotate_idkg_dealing_encryption_keys {
     }
 
     #[test]
+    fn should_not_rotate_key_when_node_not_on_any_subnet() {
+        let setup = Setup::new_with_ecdsa_subnet_config(None);
+        let idkg_public_key_before_rotation =
+            setup.current_local_idkg_dealing_encryption_public_key();
+        let idkg_public_key_from_registry = PublicKey {
+            timestamp: Some(0),
+            ..idkg_public_key_before_rotation
+        };
+        setup
+            .register_idkg_public_key(idkg_public_key_from_registry, REGISTRY_VERSION_2)
+            .set_time(Time::try_from(TWO_WEEKS + Duration::from_nanos(1)).unwrap());
+
+        let rotated_idkg_key = setup
+            .crypto
+            .rotate_idkg_dealing_encryption_keys(REGISTRY_VERSION_2);
+
+        assert!(matches!(
+            rotated_idkg_key,
+            Err(IDkgDealingEncryptionKeyRotationError::KeyRotationNotEnabled)
+        ));
+    }
+
+    #[test]
+    fn should_not_rotate_key_when_node_not_on_ecdsa_subnet() {
+        let setup = Setup::new_with_ecdsa_subnet_config(Some(EcdsaSubnetConfig::new(
+            subnet_id(),
+            Some(NodeId::from(PrincipalId::new_node_test_id(182))),
+            Some(TWO_WEEKS),
+        )));
+        let idkg_public_key_before_rotation =
+            setup.current_local_idkg_dealing_encryption_public_key();
+        let idkg_public_key_from_registry = PublicKey {
+            timestamp: Some(0),
+            ..idkg_public_key_before_rotation
+        };
+        setup
+            .register_idkg_public_key(idkg_public_key_from_registry, REGISTRY_VERSION_2)
+            .set_time(Time::try_from(TWO_WEEKS + Duration::from_nanos(1)).unwrap());
+
+        let rotated_idkg_key = setup
+            .crypto
+            .rotate_idkg_dealing_encryption_keys(REGISTRY_VERSION_2);
+
+        assert!(matches!(
+            rotated_idkg_key,
+            Err(IDkgDealingEncryptionKeyRotationError::KeyRotationNotEnabled)
+        ));
+    }
+
+    #[test]
+    fn should_not_rotate_key_when_key_rotation_period_not_set() {
+        let setup = Setup::new_with_ecdsa_subnet_config(Some(EcdsaSubnetConfig::new(
+            subnet_id(),
+            Some(node_id()),
+            None,
+        )));
+        let idkg_public_key_before_rotation =
+            setup.current_local_idkg_dealing_encryption_public_key();
+        let idkg_public_key_from_registry = PublicKey {
+            timestamp: Some(0),
+            ..idkg_public_key_before_rotation
+        };
+        setup
+            .register_idkg_public_key(idkg_public_key_from_registry, REGISTRY_VERSION_2)
+            .set_time(Time::try_from(TWO_WEEKS + Duration::from_nanos(1)).unwrap());
+
+        let rotated_idkg_key = setup
+            .crypto
+            .rotate_idkg_dealing_encryption_keys(REGISTRY_VERSION_2);
+
+        assert!(matches!(
+            rotated_idkg_key,
+            Err(IDkgDealingEncryptionKeyRotationError::KeyRotationNotEnabled)
+        ));
+    }
+
+    #[test]
+    fn should_not_rotate_key_when_no_ecdsa_config_exists() {
+        let setup = Setup::new_with_ecdsa_subnet_config(Some(
+            EcdsaSubnetConfig::new_without_ecdsa_config(subnet_id(), Some(node_id())),
+        ));
+        let idkg_public_key_before_rotation =
+            setup.current_local_idkg_dealing_encryption_public_key();
+        let idkg_public_key_from_registry = PublicKey {
+            timestamp: Some(0),
+            ..idkg_public_key_before_rotation
+        };
+        setup
+            .register_idkg_public_key(idkg_public_key_from_registry, REGISTRY_VERSION_2)
+            .set_time(Time::try_from(TWO_WEEKS + Duration::from_nanos(1)).unwrap());
+
+        let rotated_idkg_key = setup
+            .crypto
+            .rotate_idkg_dealing_encryption_keys(REGISTRY_VERSION_2);
+
+        assert!(matches!(
+            rotated_idkg_key,
+            Err(IDkgDealingEncryptionKeyRotationError::KeyRotationNotEnabled)
+        ));
+    }
+
+    #[test]
+    fn should_not_rotate_key_when_no_ecdsa_key_ids_configured() {
+        let setup = Setup::new_with_ecdsa_subnet_config(Some(
+            EcdsaSubnetConfig::new_without_key_ids(subnet_id(), Some(node_id()), Some(TWO_WEEKS)),
+        ));
+        let idkg_public_key_before_rotation =
+            setup.current_local_idkg_dealing_encryption_public_key();
+        let idkg_public_key_from_registry = PublicKey {
+            timestamp: Some(0),
+            ..idkg_public_key_before_rotation
+        };
+        setup
+            .register_idkg_public_key(idkg_public_key_from_registry, REGISTRY_VERSION_2)
+            .set_time(Time::try_from(TWO_WEEKS - Duration::from_nanos(1)).unwrap());
+
+        let rotated_idkg_key = setup
+            .crypto
+            .rotate_idkg_dealing_encryption_keys(REGISTRY_VERSION_2);
+
+        assert!(matches!(
+            rotated_idkg_key,
+            Err(IDkgDealingEncryptionKeyRotationError::KeyRotationNotEnabled)
+        ));
+    }
+
+    #[test]
     fn should_rotate_idkg_public_key() {
         let setup = Setup::new();
         let idkg_public_key_before_rotation =
@@ -225,33 +357,86 @@ mod rotate_idkg_dealing_encryption_keys {
         );
     }
 
+    #[test]
+    fn should_return_error_when_registry_error() {
+        let mock_registry_client = registry_returning(RegistryClientError::PollLockFailed {
+            error: "oh no!".to_string(),
+        });
+        let crypto = temp_crypto_builder()
+            .with_registry(Arc::new(mock_registry_client))
+            .build();
+
+        let rotated_idkg_key = crypto.rotate_idkg_dealing_encryption_keys(REGISTRY_VERSION_1);
+
+        assert!(matches!(
+            rotated_idkg_key,
+            Err(IDkgDealingEncryptionKeyRotationError::RegistryError(
+                RegistryClientError::PollLockFailed { error }
+            )) if error.contains("oh no!")
+        ));
+    }
+
     struct Setup {
         registry_data: Arc<ProtoRegistryDataProvider>,
         registry_client: Arc<FakeRegistryClient>,
-        time_source: Arc<FastForwardTimeSource>,
+        time_source: Arc<FastForwardCryptoTimeSource>,
         crypto: TempCryptoComponent,
     }
 
     impl Setup {
         fn new() -> Self {
+            Self::new_with_ecdsa_subnet_config(Some(EcdsaSubnetConfig::new(
+                subnet_id(),
+                Some(node_id()),
+                Some(TWO_WEEKS),
+            )))
+        }
+
+        fn new_with_keys_to_generate(node_keys_to_generate: NodeKeysToGenerate) -> Self {
+            Self::new_internal(
+                node_keys_to_generate,
+                Some(EcdsaSubnetConfig::new(
+                    subnet_id(),
+                    Some(node_id()),
+                    Some(TWO_WEEKS),
+                )),
+            )
+        }
+
+        fn new_with_ecdsa_subnet_config(ecdsa_subnet_config: Option<EcdsaSubnetConfig>) -> Self {
+            Self::new_internal(
+                NodeKeysToGenerate::only_idkg_dealing_encryption_key(),
+                ecdsa_subnet_config,
+            )
+        }
+
+        fn new_internal(
+            node_keys_to_generate: NodeKeysToGenerate,
+            ecdsa_subnet_config: Option<EcdsaSubnetConfig>,
+        ) -> Self {
             let registry_data = Arc::new(ProtoRegistryDataProvider::new());
             let registry_client =
                 Arc::new(FakeRegistryClient::new(Arc::clone(&registry_data) as Arc<_>));
-            let time_source = FastForwardTimeSource::new();
-            Setup {
+            let time_source = FastForwardCryptoTimeSource::new();
+            let mut crypto_builder = temp_crypto_builder()
+                .with_keys(node_keys_to_generate)
+                .with_registry_client_and_data(
+                    Arc::clone(&registry_client) as Arc<_>,
+                    Arc::clone(&registry_data) as Arc<_>,
+                )
+                .with_time_source(Arc::clone(&time_source) as Arc<_>);
+            if let Some(ecdsa_subnet_config) = ecdsa_subnet_config {
+                crypto_builder = crypto_builder.with_ecdsa_subnet_config(ecdsa_subnet_config);
+            }
+
+            let setup = Setup {
                 registry_data: Arc::clone(&registry_data) as Arc<_>,
                 registry_client: Arc::clone(&registry_client) as Arc<_>,
                 time_source: Arc::clone(&time_source) as Arc<_>,
-                crypto: TempCryptoComponent::builder()
-                    .with_keys(NodeKeysToGenerate::only_idkg_dealing_encryption_key())
-                    .with_node_id(node_id())
-                    .with_registry_client_and_data(
-                        Arc::clone(&registry_client) as Arc<_>,
-                        Arc::clone(&registry_data) as Arc<_>,
-                    )
-                    .with_time_source(Arc::clone(&time_source) as Arc<_>)
-                    .build(),
-            }
+                crypto: crypto_builder.build(),
+            };
+            registry_client.reload();
+            setup
         }
 
         fn register_idkg_public_key(
@@ -288,6 +473,10 @@ mod rotate_idkg_dealing_encryption_keys {
         NodeId::from(PrincipalId::new_node_test_id(NODE_ID))
     }
 
+    fn subnet_id() -> SubnetId {
+        SubnetId::new(PrincipalId::new(29, [0xfc; 29]))
+    }
+
     fn an_idkg_dealing_encryption_public_key() -> PublicKey {
         idkg_dealing_encryption_pk_to_proto(
             MEGaPublicKey::deserialize(
@@ -297,5 +486,21 @@ mod rotate_idkg_dealing_encryption_keys {
             )
             .unwrap(),
         )
+    }
+
+    fn registry_returning(error: RegistryClientError) -> impl RegistryClient {
+        let mut registry = MockRegistryClient::new();
+        registry
+            .expect_get_value()
+            .returning(move |_, _| Err(error.clone()));
+        registry
+    }
+
+    fn temp_crypto_builder() -> TempCryptoBuilder {
+        TempCryptoComponent::builder()
+            .with_keys(NodeKeysToGenerate::only_idkg_dealing_encryption_key())
+            // callers of rotate_idkg_dealing_encryption_keys use a CryptoComponent with a remote vault
+            .with_remote_vault()
+            .with_node_id(node_id())
     }
 }
