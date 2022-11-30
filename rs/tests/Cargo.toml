@@ -223,9 +223,33 @@ name = "ic-systest-safety-test"
 path = "bin/safety_test.rs"
 
 [[bin]]
+name = "ic-systest-system-api-security-test"
+path = "bin/system_api_security_test.rs"
+
+[[bin]]
+name = "ic-systest-tecdsa-complaint-test"
+path = "bin/tecdsa_complaint_test.rs"
+
+[[bin]]
+name = "ic-systest-max-ingress-payload-size-test"
+path = "bin/max_ingress_payload_size_test.rs"
+
+[[bin]]
+name = "ic-systest-dual-workload-test"
+path = "bin/dual_workload_test.rs"
+
+[[bin]]
+name = "ic-systest-max-xnet-payload-size-test"
+path = "bin/max_xnet_payload_size_test.rs"
+
+[[bin]]
 name = "test-driver-e2e-scenarios"
 path = "bin/test_driver_e2e_scenarios.rs"
 
 [[bin]]
 name = "ic-systest-upgrade-compatibility"
 path = "bin/upgrade_compatibility_test.rs"
+
+[[bin]]
+name = "ic-systest-two-third-latency"
+path = "bin/two_third_latency_test.rs"

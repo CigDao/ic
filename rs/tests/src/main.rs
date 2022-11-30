@@ -27,7 +27,6 @@ use slog::Logger;
 use ic_tests::cli::Options;
 use ic_tests::consensus::cow_safety_test;
 use ic_tests::execution;
-use ic_tests::execution::system_api_security_test;
 use ic_tests::nns_tests::nns_voting_fuzzing_poc_test;
 use ic_tests::tecdsa;
 use ic_tests::util::CYCLES_LIMIT_PER_CANISTER;
@@ -38,14 +37,7 @@ use std::time::Instant;
 /// here, just add another entry to the vector with the corresponding pot.
 fn all_pots() -> Vec<ic_fondue::pot::Pot> {
     // HAVE YOU READ THE README AT THE TOP?
-    vec![
-        max_payload_pot(),
-        dual_workload_pot(),
-        system_subnets_pot(),
-        request_auth_malicious_replica_pot(),
-        system_api_security_pot(),
-        tecdsa_complaint_test_pot(),
-    ]
+    vec![system_subnets_pot(), request_auth_malicious_replica_pot()]
 }
 
 fn request_auth_malicious_replica_pot() -> pot::Pot {
@@ -63,46 +55,6 @@ fn system_subnets_pot() -> pot::Pot {
         steps! {
             execution::nns_shielding::non_nns_canister_attempt_to_create_canister_on_another_subnet_fails,
             execution::nns_shielding::nns_canister_attempt_to_create_canister_on_another_subnet_succeeds
-        }
-    )
-}
-
-fn dual_workload_pot() -> pot::Pot {
-    composable!(
-        "dual_workload_pot",
-        consensus::payload_builder_test::dual_workload_config(),
-        steps! {consensus::payload_builder_test::dual_workload_test}
-    )
-}
-
-fn max_payload_pot() -> pot::Pot {
-    composable!(
-        "max_payload_pod",
-        consensus::payload_builder_test::max_payload_size_config(),
-        steps! {
-            consensus::payload_builder_test::max_ingress_payload_size_test,
-            consensus::payload_builder_test::max_xnet_payload_size_test
-        }
-    )
-}
-
-fn system_api_security_pot() -> pot::Pot {
-    composable!(
-        "system_security_tests",
-        system_api_security_test::config(),
-        steps! {
-            system_api_security_test::malicious_inputs => "malicious input - security",
-            system_api_security_test::malicious_intercanister_calls => "malicious inter canister calls - security"
-        }
-    )
-}
-
-fn tecdsa_complaint_test_pot() -> pot::Pot {
-    composable!(
-        "tecdsa_complaint_test",
-        tecdsa::tecdsa_complaint_test::config(),
-        steps! {
-            tecdsa::tecdsa_complaint_test::test_threshold_ecdsa_complaint => "tECDSA complaints test"
         }
     )
 }

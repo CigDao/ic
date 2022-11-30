@@ -1,6 +1,7 @@
 use clap::Parser;
 use ic_backup::{backup_manager::BackupManager, cmd::BackupArgs};
 use slog::{o, Drain};
+use std::sync::Arc;
 use tokio::runtime::Handle;
 use tokio::task::spawn_blocking;
 
@@ -20,6 +21,7 @@ use tokio::task::spawn_blocking;
 //         "tmp"
 //     ],
 //     "ssh_private_key": "/home/my_user/.ssh/id_ed25519_backup",
+//     "disk_threshold_warn": 75,
 //     "slack_token": "ABCD1234"
 //     "subnets": [
 //       {
@@ -50,8 +52,8 @@ async fn main() {
     let args = BackupArgs::parse();
     let rt = Handle::current();
     spawn_blocking(move || {
-        let mut bm = BackupManager::new(args.config_file, &rt, log);
-        bm.do_backups();
+        let bm = BackupManager::new(args.config_file, &rt, log);
+        Arc::new(bm).do_backups();
     })
     .await
     .expect("Blocking task panicked")
